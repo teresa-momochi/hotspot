@@ -1,0 +1,2171 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Interactive Image App — MVP Prototype</title>
+<style>
+  :root{
+    --color-bg: #F5F7F6;
+    --color-surface: #FFFFFF;
+    --color-primary: #1F6F6B;
+    --color-primary-dark: #164F4C;
+    --color-accent: #E8A33D;
+    --color-accent-dark: #C6841F;
+    --color-text: #1E2A28;
+    --color-text-soft: #56635F;
+    --color-border: #DCE3E0;
+    --color-danger: #C24B4B;
+    --color-danger-soft: #FBEAEA;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --shadow-sm: 0 1px 2px rgba(20,40,36,.08);
+    --shadow-md: 0 6px 20px rgba(20,40,36,.12);
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    font-family: var(--font-ui);
+    background: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing:antialiased;
+  }
+  #app{ min-height:100vh; display:flex; flex-direction:column; }
+
+  button{ font-family:inherit; cursor:pointer; }
+  input, textarea{ font-family:inherit; }
+
+  /* ---------- Layout primitives (Screen Specification §3) ---------- */
+  .screen{ flex:1; display:flex; flex-direction:column; min-height:100vh; }
+  .screen-header{
+    display:flex; align-items:center; gap:12px;
+    padding:14px 20px; background:var(--color-surface);
+    border-bottom:1px solid var(--color-border);
+    position:sticky; top:0; z-index:20;
+  }
+  .screen-header h1{ font-size:16px; margin:0; font-weight:600; flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* UI-001：標題＋編輯按鈕分成一組，編輯按鈕緊貼名稱旁邊，不會被其他按鈕擠到最右側 */
+  .header-title-group{ display:flex; align-items:center; gap:2px; flex:1 1 auto; min-width:0; }
+  .header-title-group h1{ flex:0 1 auto; }
+  .header-title-group .btn-icon{ flex:0 0 auto; }
+  .screen-workspace{ flex:1; padding:24px; max-width:960px; width:100%; margin:0 auto; }
+  .screen-workspace.wide{ max-width:1200px; }
+
+  .btn{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:9px 16px; border-radius:var(--radius-md);
+    border:1px solid transparent; font-size:14px; font-weight:600;
+    transition:transform .08s ease, background .15s ease;
+    white-space:nowrap;
+  }
+  .btn:active{ transform:scale(.97); }
+  .btn-primary{ background:var(--color-primary); color:#fff; }
+  .btn-primary:hover{ background:var(--color-primary-dark); }
+  .btn-accent{ background:var(--color-accent); color:#3A2A0A; }
+  .btn-accent:hover{ background:var(--color-accent-dark); color:#fff; }
+  .btn-ghost{ background:transparent; color:var(--color-text); border-color:var(--color-border); }
+  .btn-ghost:hover{ background:#EEF2F1; }
+  .btn-danger{ background:var(--color-danger-soft); color:var(--color-danger); }
+  .btn-danger:hover{ background:var(--color-danger); color:#fff; }
+  .btn-icon{ padding:8px; border-radius:var(--radius-sm); background:transparent; border:1px solid transparent; color:var(--color-text-soft); }
+  .btn-icon:hover{ background:#EEF2F1; color:var(--color-text); }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; }
+
+  .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+  .field label{ font-size:13px; font-weight:600; color:var(--color-text-soft); }
+  .field input[type=text], .field textarea, .field select{
+    padding:10px 12px; border:1px solid var(--color-border); border-radius:var(--radius-sm);
+    font-size:14px; background:#fff; color:var(--color-text);
+  }
+  .field input:focus, .field textarea:focus, .field select:focus{ outline:2px solid var(--color-primary); outline-offset:1px; }
+
+  .search-bar{
+    display:flex; align-items:center; gap:8px;
+    background:#fff; border:1px solid var(--color-border); border-radius:var(--radius-md);
+    padding:8px 12px; flex:1; max-width:320px;
+  }
+  .search-bar input{ border:none; outline:none; flex:1; font-size:14px; background:transparent; }
+
+  /* ---------- Cards / grid (Library, Project) ---------- */
+  .toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(210px,1fr)); gap:16px; }
+  .card{
+    background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg);
+    padding:16px; display:flex; flex-direction:column; gap:10px; cursor:pointer;
+    transition:box-shadow .15s ease, border-color .15s ease;
+  }
+  .card:hover{ box-shadow:var(--shadow-md); border-color:var(--color-primary); }
+  .card-thumb{
+    height:120px; border-radius:var(--radius-sm); background:linear-gradient(135deg,#DCEDEB,#EFF6F5);
+    display:flex; align-items:center; justify-content:center; color:var(--color-primary); font-size:32px;
+    overflow:hidden;
+  }
+  .card-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .card-title{ font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-meta{ font-size:12px; color:var(--color-text-soft); display:flex; justify-content:space-between; }
+  .card-actions{ display:flex; gap:6px; margin-top:auto; }
+
+  /* ---------- Empty state (UX-13) ---------- */
+  .empty-state{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:60px 20px; color:var(--color-text-soft); gap:14px;
+  }
+  .empty-state .icon{ font-size:40px; }
+  .empty-state p{ margin:0; font-size:14px; }
+
+  /* ---------- Toast (UX-08 immediate feedback) ---------- */
+  #toast-host{ position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:200; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .toast{
+    background:#20302C; color:#fff; padding:10px 16px; border-radius:999px; font-size:13px;
+    display:flex; align-items:center; gap:12px; box-shadow:var(--shadow-md);
+    animation: toast-in .18s ease;
+  }
+  .toast button{ background:transparent; border:none; color:var(--color-accent); font-weight:700; font-size:13px; }
+  @keyframes toast-in{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+
+  /* ---------- Dialog (Screen Specification §3.5) ---------- */
+  .dialog-overlay{
+    position:fixed; inset:0; background:rgba(20,32,29,.45); display:flex; align-items:center; justify-content:center;
+    z-index:100; padding:16px;
+  }
+  .dialog{
+    background:#fff; border-radius:var(--radius-lg); padding:22px; width:100%; max-width:380px;
+    box-shadow:var(--shadow-md);
+  }
+  .dialog h2{ font-size:16px; margin:0 0 14px; }
+  .dialog-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+
+  /* ---------- Welcome ---------- */
+  .welcome{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background: radial-gradient(circle at 30% 20%, #EAF4F2, var(--color-bg));
+    padding:32px; text-align:center; position:relative;
+  }
+  .welcome-anim{ position:relative; width:220px; height:220px; margin-bottom:28px; }
+  .welcome-photo{
+    width:100%; height:100%; border-radius:var(--radius-lg); background:linear-gradient(135deg,#1F6F6B,#4FA79C);
+    box-shadow:var(--shadow-md); position:relative; overflow:hidden;
+  }
+  .welcome-pin{
+    position:absolute; width:22px; height:22px; border-radius:50%; background:var(--color-accent);
+    border:3px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.25); opacity:0; transform:scale(.4);
+    animation: pin-pop .5s ease forwards;
+  }
+  @keyframes pin-pop{ to{ opacity:1; transform:scale(1); } }
+  .welcome h1{ font-size:24px; margin:0 0 8px; }
+  .welcome p{ color:var(--color-text-soft); max-width:360px; margin:0 0 26px; line-height:1.6; font-size:14px; }
+  .welcome-actions{ display:flex; gap:10px; }
+  .skip-link{ position:absolute; top:20px; right:20px; background:transparent; border:none; color:var(--color-text-soft); font-size:13px; }
+
+  /* ---------- Entry method / Login ---------- */
+  .centered-screen{ flex:1; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .option-list{ display:flex; flex-direction:column; gap:12px; width:100%; max-width:380px; }
+  .option-card{
+    display:flex; align-items:flex-start; gap:14px; padding:16px; border:1px solid var(--color-border);
+    border-radius:var(--radius-lg); background:#fff; text-align:left; width:100%;
+  }
+  .option-card .icon{ font-size:22px; }
+  .option-card .title{ font-weight:600; font-size:14px; margin-bottom:3px; }
+  .option-card .desc{ font-size:12px; color:var(--color-text-soft); line-height:1.5; }
+  .option-card.selectable{ cursor:pointer; transition:border-color .15s; }
+  .option-card.selectable:hover{ border-color:var(--color-primary); }
+
+  .auth-card{
+    background:#fff; border:1px solid var(--color-border); border-radius:var(--radius-lg);
+    padding:32px; width:100%; max-width:340px; text-align:center;
+  }
+  .auth-card h1{ font-size:20px; margin:0 0 6px; }
+  .auth-card p{ color:var(--color-text-soft); font-size:13px; margin:0 0 22px; }
+  .auth-btn{
+    width:100%; justify-content:center; padding:11px; margin-bottom:10px; border-radius:var(--radius-md);
+    border:1px solid var(--color-border); background:#fff; font-weight:600; font-size:14px;
+  }
+  .auth-btn:hover{ background:#F5F7F6; }
+
+  /* ---------- Image Editor workspace (CR-001: Zoom / Pan / Fit) ---------- */
+  .editor-layout{ display:flex; flex:1; min-height:0; }
+  .editor-canvas-wrap{
+    flex:1; background:#12201D; position:relative; overflow:hidden; min-height:420px;
+    cursor:grab; touch-action:none;
+  }
+  .editor-canvas-wrap.panning{ cursor:grabbing; }
+  .editor-canvas-wrap.empty{ background:var(--color-bg); }
+  .editor-viewport{
+    position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform;
+  }
+  #editor-image-frame{ position:relative; }
+  #editor-image-frame img{ display:block; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+
+  /* CR-005：Hotspot 改為可拖曳／可調整大小的矩形區域（Image Editor 專用，Reading Mode 不use這組樣式）*/
+  .hotspot-box{
+    position:absolute; box-sizing:border-box;
+    border:2px solid var(--color-accent); background:rgba(232,163,61,.16);
+    cursor:move; user-select:none;
+  }
+  .hotspot-box.active{ border-color:var(--color-primary); background:rgba(31,111,107,.16); z-index:5; }
+  .hotspot-box.completed{ border-style:solid; }
+  .hotspot-box.completed:not(.active){ border-color:var(--color-primary); }
+  .hotspot-label{
+    position:absolute; left:0; top:0; transform:translate(0,-100%);
+    background:var(--color-accent); color:#3A2A0A; font-weight:700; font-size:11px;
+    padding:2px 6px; border-radius:4px 4px 4px 0; white-space:nowrap; pointer-events:none;
+  }
+  .hotspot-box.active .hotspot-label{ background:var(--color-primary); color:#fff; }
+  .hotspot-check{
+    position:absolute; right:0; bottom:0; transform:translate(50%,50%);
+    background:var(--color-primary); color:#fff; border-radius:50%; width:16px; height:16px;
+    display:flex; align-items:center; justify-content:center; font-size:10px; border:2px solid #fff;
+    pointer-events:none;
+  }
+  .hotspot-handle{
+    position:absolute; width:12px; height:12px;
+    background:#fff; border:2px solid var(--color-primary); border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,.3);
+  }
+  .hotspot-handle[data-h="n"], .hotspot-handle[data-h="s"]{ cursor:ns-resize; }
+  .hotspot-handle[data-h="e"], .hotspot-handle[data-h="w"]{ cursor:ew-resize; }
+  .hotspot-handle[data-h="ne"], .hotspot-handle[data-h="sw"]{ cursor:nesw-resize; }
+  .hotspot-handle[data-h="nw"], .hotspot-handle[data-h="se"]{ cursor:nwse-resize; }
+
+  input[type=range]{ width:100%; accent-color:var(--color-primary); }
+
+  .hotspot-list-item.completed .status-icon{ color:var(--color-primary); }
+  .status-icon{ font-size:12px; width:14px; flex-shrink:0; text-align:center; color:var(--color-text-soft); }
+
+  /* Screen Specification §8 View Modes：Fit / 100% / +− */
+  .zoom-bar{
+    position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:2px; background:rgba(20,32,29,.82); backdrop-filter:blur(6px);
+    border-radius:999px; padding:4px; z-index:10; box-shadow:var(--shadow-md);
+  }
+  .zoom-bar button{
+    background:transparent; border:none; color:#fff; width:32px; height:32px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:600;
+  }
+  .zoom-bar button:hover{ background:rgba(255,255,255,.15); }
+  .zoom-bar .zoom-pct{
+    color:#fff; font-size:12px; min-width:46px; text-align:center; font-variant-numeric:tabular-nums;
+  }
+  .zoom-bar .zoom-divider{ width:1px; height:18px; background:rgba(255,255,255,.25); margin:0 2px; }
+  .zoom-bar .zoom-fit-btn, .zoom-bar .zoom-100-btn{
+    width:auto; padding:0 10px; border-radius:999px; font-size:12px; font-weight:600;
+  }
+
+  .editor-panel{
+    width:300px; flex-shrink:0; background:#fff; border-left:1px solid var(--color-border);
+    display:flex; flex-direction:column; overflow-y:auto;
+  }
+  .editor-panel-section{ padding:16px 18px; border-bottom:1px solid var(--color-border); }
+  .editor-panel-section h3{ font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-soft); margin:0 0 10px; }
+  .hotspot-list-item{
+    display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--radius-sm);
+    cursor:pointer; font-size:13px;
+  }
+  .hotspot-list-item:hover{ background:#F5F7F6; }
+  .hotspot-list-item.active{ background:#E7F1F0; font-weight:600; }
+  .hotspot-list-item .dot{ width:8px; height:8px; border-radius:50%; background:var(--color-accent); flex-shrink:0; }
+
+
+  /* ---------- Reading Mode（CR-006：Split Pane + Zoom/Pan，Screen Specification RM-06/RM-07）---------- */
+  .reading-mode{ position:fixed; inset:0; background:#0E1917; z-index:150; display:flex; flex-direction:column; }
+  .reading-header{
+    position:absolute; top:0; left:0; right:0; z-index:20;
+    display:flex; align-items:center; gap:12px; padding:14px 18px;
+    background:linear-gradient(to bottom, rgba(0,0,0,.55), transparent);
+    transform:translateY(-100%); transition:transform .25s ease;
+  }
+  .reading-header.visible{ transform:translateY(0); }
+  .reading-header button{ background:rgba(255,255,255,.12); color:#fff; border:none; }
+  .reading-header h2{ color:#fff; font-size:14px; margin:0; font-weight:500; }
+
+  .reading-split{ flex:1; display:flex; flex-direction:column; min-height:0; }
+  .reading-stage{ position:relative; overflow:hidden; touch-action:none; cursor:grab; flex-shrink:0; }
+  .reading-stage.panning{ cursor:grabbing; }
+  .reading-viewport{ position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; }
+  #reading-image-frame{ position:relative; }
+  #reading-image-frame img{ display:block; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+
+  .reading-hotspot{ position:absolute; cursor:pointer; }
+  .reading-hotspot .flash{
+    position:absolute; inset:0; border-radius:4px; opacity:0;
+    background:rgba(255,255,255,.4); border:3px solid rgba(255,255,255,.9);
+    transition:opacity .3s ease; pointer-events:none;
+  }
+  .reading-hotspot.flashing .flash{ opacity:1; transition:opacity .05s ease; }
+
+  /* Split Pane 分隔線：教室大螢幕／觸控白板優先，抓取區夠大 */
+  .reading-divider{
+    flex-shrink:0; height:16px; background:#0E1917; position:relative;
+    cursor:row-resize; touch-action:none; z-index:10;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .reading-divider::before{
+    content:''; width:44px; height:5px; border-radius:999px; background:rgba(255,255,255,.28);
+    transition:background .15s ease;
+  }
+  .reading-divider:hover::before, .reading-divider.dragging::before{ background:rgba(255,255,255,.6); }
+
+  .reading-panel{
+    flex-shrink:0; background:#fff; overflow-y:auto; padding:18px 22px;
+    display:flex; flex-direction:column; justify-content:center;
+  }
+  .reading-panel p{ margin:0; font-size:16px; line-height:1.7; color:var(--color-text); }
+  .reading-panel p.placeholder{ color:var(--color-text-soft); font-size:14px; }
+
+  /* ---------- Settings / User Menu ---------- */
+  .settings-list{ display:flex; flex-direction:column; gap:1px; background:var(--color-border); border-radius:var(--radius-lg); overflow:hidden; border:1px solid var(--color-border); margin-bottom:20px; }
+  .settings-row{ background:#fff; padding:16px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .settings-row .title{ font-weight:600; font-size:14px; }
+  .settings-row .desc{ font-size:12px; color:var(--color-text-soft); margin-top:2px; }
+  select.lang-select{ padding:8px 10px; border-radius:var(--radius-sm); border:1px solid var(--color-border); font-size:13px; background:#fff; }
+  .settings-section-title{ font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-soft); margin:0 0 8px; }
+  .storage-bar{ height:8px; border-radius:999px; background:var(--color-border); overflow:hidden; }
+  .storage-bar-fill{ height:100%; background:var(--color-primary); border-radius:999px; }
+
+  .badge-dev{
+    display:inline-block; font-size:11px; background:#FFF3DE; color:#8A5B00; padding:2px 8px;
+    border-radius:999px; font-weight:600; margin-left:6px;
+  }
+  .badge-info{
+    display:inline-block; font-size:11px; background:#E7F1F0; color:var(--color-primary-dark); padding:2px 8px;
+    border-radius:999px; font-weight:600; margin-left:6px;
+  }
+
+  @media (max-width: 720px){
+    .editor-layout{ flex-direction:column; }
+    .editor-panel{ width:100%; border-left:none; border-top:1px solid var(--color-border); max-height:42vh; }
+    .screen-workspace{ padding:16px; }
+    .screen-header{ flex-wrap:wrap; row-gap:8px; }
+    .screen-header .btn{ font-size:12px; padding:7px 10px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-host"></div>
+
+<script>
+/* =========================================================================
+   Interactive Image App — MVP 原型（Prototype for Validation）
+
+   ⚠ 這份單一 HTML 檔是「原型驗證」用途，不是正式產品架構。正式版本是多人
+   使用的雲端 App，需要真正的後端／資料庫／身分驗證／媒體儲存服務，待
+   Database / Storage / Authentication / API / Media Specification 完成後
+   才會決定正式技術架構。詳見 ARCHITECTURE.md。
+
+   對應規格：Product Constitution v1.0 / UX Design Principles v1.0 /
+   Naming Specification v1.0 / International UI Specification v1.0 /
+   Navigation Specification v1.0 / Screen Specification v3.0 /
+   Interaction Specification v2.0 / Data Specification (concept)
+
+   為了不讓「單一 HTML」限制未來的多人雲端架構，資料存取邊界拆成兩層：
+     Screens → Repository（async 介面，方法簽章＝未來真正 API 的樣子）
+             → LocalState（原型限定：單分頁、記憶體內、同步運算）
+   Screens 只呼叫 Repository，完全不直接碰 LocalState。未來替換
+   LocalState 為真正的後端呼叫時，Repository 介面與所有畫面程式碼都不需要動。
+   ========================================================================= */
+
+/* ---------------------------------------------------------------------
+   1. International UI Specification — 正式語言 English + 本地語言輔助
+   -------------------------------------------------------------------- */
+const EN_NAMES = {
+  Library:'Library', Project:'Project', ImageEditor:'Image Editor',
+  ReadingMode:'Reading Mode', Settings:'Settings', Welcome:'Welcome',
+  EntryMethod:'Entry Method', Login:'Login', Image:'Image',
+  NewProject:'New Project', NewImage:'New Image', Search:'Search',
+  SearchProject:'Search Project',
+  Back:'Back', Delete:'Delete', Edit:'Edit', Create:'Create',
+  RecentlyDeleted:'Recently Deleted', Done:'Done', FinishSetup:'Finish Setup',
+  HotspotSize:'Hotspot Size', Rename:'Rename', Language:'Language'
+};
+const LOCAL_NAMES = {
+  'zh-TW': { Library:'學習庫', Project:'專案', ImageEditor:'互動設定',
+    ReadingMode:'閱讀模式', Settings:'設定', Welcome:'歡迎',
+    EntryMethod:'進入方式', Login:'登入', Image:'圖片',
+    NewProject:'新增專案', NewImage:'新增圖片', Search:'搜尋',
+    SearchProject:'搜尋專案',
+    Back:'返回', Delete:'刪除', Edit:'編輯', Create:'建立',
+    RecentlyDeleted:'最近刪除', Done:'完成', FinishSetup:'完成設定',
+    HotspotSize:'點擊範圍大小', Rename:'重新命名', Language:'語言' },
+  'ja': { Library:'ライブラリ', Project:'プロジェクト', ImageEditor:'インタラクティブ設定',
+    ReadingMode:'閲覧モード', Settings:'設定', Welcome:'ようこそ',
+    EntryMethod:'アクセス方法', Login:'ログイン', Image:'画像',
+    NewProject:'新規プロジェクト', NewImage:'新規画像', Search:'検索',
+    SearchProject:'プロジェクトを検索',
+    Back:'戻る', Delete:'削除', Edit:'編集', Create:'作成',
+    RecentlyDeleted:'最近削除', Done:'完了', FinishSetup:'設定を完了',
+    HotspotSize:'クリック範囲のサイズ', Rename:'名前を変更', Language:'言語' },
+  'de': { Library:'Bibliothek', Project:'Projekt', ImageEditor:'Interaktive Einstellungen',
+    ReadingMode:'Lesemodus', Settings:'Einstellungen', Welcome:'Willkommen',
+    EntryMethod:'Zugriffsart', Login:'Anmeldung', Image:'Bild',
+    NewProject:'Neues Projekt', NewImage:'Neues Bild', Search:'Suche',
+    SearchProject:'Projekt suchen',
+    Back:'Zurück', Delete:'Löschen', Edit:'Bearbeiten', Create:'Erstellen',
+    RecentlyDeleted:'Kürzlich gelöscht', Done:'Fertig', FinishSetup:'Einrichtung abschließen',
+    HotspotSize:'Klickbereichsgröße', Rename:'Umbenennen', Language:'Sprache' },
+  'en': {}
+};
+const SUPPORTED_LANGS = [
+  { code:'zh-TW', label:'繁體中文' },
+  { code:'en', label:'English' },
+  { code:'ja', label:'日本語' },
+  { code:'de', label:'Deutsch' }
+];
+function L(key){
+  const lang = Store.state.language;
+  const local = LOCAL_NAMES[lang] || {};
+  const en = EN_NAMES[key] || key;
+  if (lang === 'en' || !local[key]) return en;
+  return `${en}（${local[key]}）`;
+}
+
+/* ---------------------------------------------------------------------
+   2. Store — 記憶體資料層（概念模型：User → Project → Image → Hotspot）
+   本層只是「未來 Database/API 應提供哪些操作」的介面占位。
+   TODO(Database Specification): 定義實際資料表與型別後，替換內部實作。
+   TODO(API Specification): 定義實際請求格式後，把這些方法改為非同步呼叫。
+   TODO(Storage Specification): 定義使用者 Session／裝置狀態保存方式。
+   -------------------------------------------------------------------- */
+let uidCounter = 1;
+function uid(prefix){ return `${prefix}_${(uidCounter++).toString(36)}_${Date.now().toString(36).slice(-4)}`; }
+
+/*
+ * LocalState — 目前 MVP 唯一的實作方式：單一分頁、記憶體內、同步運算。
+ * 這是「原型驗證專用」的實作細節，重新整理即消失，也不支援多人同時使用。
+ * 正式多人雲端版本會用 Database/API/Storage/Authentication Specification
+ * 定義出的後端服務取代這個物件 —— Screens 完全不會知道底下換了實作，
+ * 因為它們只透過下面的 Repository 呼叫（一律回傳 Promise、以 userId 隔離資料）。
+ */
+const LocalState = {
+  currentUser: null, // { id, name, email, provider, plan, storageUsedMB, storageLimitMB }
+  language: 'zh-TW',
+  entryMethodConfigured: false,
+  projects: [], // 每筆都有 ownerId，對應目前登入使用者
+  images: [],
+  hotspots: []
+};
+
+/*
+ * Repository — Screens 唯一允許呼叫的資料層介面（Data Specification 概念模型
+ * User → Project → Image → Hotspot → Content 的操作入口）。
+ *
+ * 設計成 async / Promise-based，是刻意的：即使目前底層是同步的記憶體運算，
+ * 呼叫方式已經跟「未來呼叫真正 API」一致，換掉 LocalState 不需要更動任何畫面程式碼。
+ *
+ * ── Authentication / Session 架構（本次 CR 定義，尚未接上真正的 Supabase）──
+ * 產品定位是「教材製作工具」不是「教材分享平台」：每位使用者只能存取自己的
+ * Project，不提供教材交換或公開分享。因此資料隔離的原則是：
+ *   1. 每個 Project 建立時都綁定 ownerId（=目前登入使用者的 id）。
+ *   2. Image／Hotspot 不需要各自存 ownerId——擁有權透過 Project 繼承
+ *      （User owns Project owns Image owns Hotspot，與 Data Specification 一致），
+ *      只要 Project 層做好隔離，底下的 Image／Hotspot 自然也只有擁有者能看到。
+ *   3. listProjects／getProject 等讀取方法，一律先過濾「ownerId === 目前使用者」，
+ *      這裡先用記憶體陣列 filter 模擬，未來接 Supabase 時，換成 Row Level
+ *      Security（RLS）比對 auth.uid()，呼叫端（Screens）完全不需要更動。
+ *
+ * App 啟動流程（Router 已依此實作，見檔案最後的啟動程式碼）：
+ *   Launch App → checkSession() → 有效 → 直接進 Library
+ *                              → 無效 → Welcome → Entry Method → Login
+ * 目前 checkSession() 一定回傳「無 session」，因為 LocalState 本來就不跨頁面存活
+ * （這是刻意的 MVP 限制，見檔案開頭說明）；等 Storage/Authentication Specification
+ * 定案、接上真正會持久化的 Session（例如 Supabase 的 JWT），這個方法內部
+ * 換成「檢查真正的 Session」即可，Router 端的流程判斷完全不需要重寫。
+ *
+ * TODO(Database Specification)：定義資料表/型別後，內部改為呼叫真正的資料庫。
+ * TODO(API Specification)：定義請求格式後，內部改為 fetch()／SDK 呼叫。
+ * TODO(Authentication Specification)：真正的登入驗證、Session 簽發與到期、
+ *   Email／Google／Apple 三種登入方式的實際串接，都待該規格定案後實作；
+ *   目前 login() 只是把假的使用者資料放進記憶體。
+ * TODO(Storage Specification)：圖片/音訊等媒體來源與網址、儲存空間用量的
+ *   真實計算方式，待該規格定案後定義；目前 storageUsedMB／storageLimitMB
+ *   是展示用的固定假資料。
+ */
+const Repository = {
+
+  // ---- Auth / Session ----
+  async login(provider, label){
+    // TODO(Authentication Specification)：Email／Google／Apple 三種方式目前都只是
+    // 佔位，尚未串接真正的 Supabase Auth；plan／storage 也是展示用假資料。
+    LocalState.currentUser = {
+      id: uid('user'),
+      name: label || '老師',
+      email: provider === 'email' ? label : `${(label || 'teacher').toLowerCase().replace(/\s+/g,'.')}@example.com`,
+      provider,
+      plan: 'Free',
+      storageUsedMB: 42,
+      storageLimitMB: 500
+    };
+    return LocalState.currentUser;
+  },
+  async logout(){ LocalState.currentUser = null; },
+  async getCurrentUser(){ return LocalState.currentUser; },
+  // App 啟動時呼叫；MVP 階段一定回傳 null（無持久化 Session），見上方註解
+  async checkSession(){ return null; },
+  async getStorageUsage(){
+    if (!LocalState.currentUser) return null;
+    const { storageUsedMB, storageLimitMB } = LocalState.currentUser;
+    return { usedMB: storageUsedMB, limitMB: storageLimitMB };
+  },
+  async setLanguage(lang){ LocalState.language = lang; },
+  async getLanguage(){ return LocalState.language; },
+  async setEntryMethodConfigured(v){ LocalState.entryMethodConfigured = v; },
+
+  // ---- Project（擁有者：User，以 ownerId 隔離——教材製作工具原則：
+  //      每位使用者只能存取自己的 Project，不提供跨帳號的教材交換或公開分享）----
+  async listProjects(query){
+    const ownerId = LocalState.currentUser?.id;
+    if (!ownerId) return [];
+    const q = (query||'').trim().toLowerCase();
+    return LocalState.projects
+      .filter(p => p.ownerId === ownerId)
+      .filter(p => !q || p.name.toLowerCase().includes(q))
+      .sort((a,b)=> b.updatedAt - a.updatedAt);
+  },
+  async getProject(id){
+    const ownerId = LocalState.currentUser?.id;
+    const p = LocalState.projects.find(p=>p.id===id) || null;
+    return (p && p.ownerId === ownerId) ? p : null; // 不是自己的 Project 一律視為不存在
+  },
+  async createProject(name){
+    const ownerId = LocalState.currentUser?.id;
+    if (!ownerId) throw new Error('createProject：必須先登入才能建立 Project');
+    const p = { id: uid('proj'), ownerId, name: name.trim(), createdAt: Date.now(), updatedAt: Date.now() };
+    LocalState.projects.unshift(p);
+    return p;
+  },
+  async touchProject(id){
+    const p = LocalState.projects.find(x=>x.id===id);
+    if (p) p.updatedAt = Date.now();
+  },
+  async renameProject(id, name){
+    const p = LocalState.projects.find(x=>x.id===id);
+    if (p){ p.name = name.trim(); p.updatedAt = Date.now(); }
+    return p;
+  },
+  async deleteProject(id){
+    const ownerId = LocalState.currentUser?.id;
+    const idx = LocalState.projects.findIndex(p=>p.id===id && p.ownerId===ownerId);
+    if (idx === -1) return null;
+    const [removed] = LocalState.projects.splice(idx,1);
+    // 級聯移除底下的 Image / Hotspot（概念上 Project 擁有 Image）
+    const removedImages = LocalState.images.filter(im=>im.projectId===id);
+    LocalState.images = LocalState.images.filter(im=>im.projectId!==id);
+    const removedImageIds = new Set(removedImages.map(im=>im.id));
+    const removedHotspots = LocalState.hotspots.filter(h=>removedImageIds.has(h.imageId));
+    LocalState.hotspots = LocalState.hotspots.filter(h=>!removedImageIds.has(h.imageId));
+    return { project: removed, images: removedImages, hotspots: removedHotspots, index: idx };
+  },
+  async restoreProject(bundle){
+    if (!bundle) return;
+    LocalState.projects.splice(bundle.index, 0, bundle.project);
+    LocalState.images.push(...bundle.images);
+    LocalState.hotspots.push(...bundle.hotspots);
+  },
+
+  // ---- Image（擁有者：Project）----
+  async listImages(projectId){
+    return LocalState.images.filter(im=>im.projectId===projectId).sort((a,b)=>a.order-b.order);
+  },
+  async getImage(id){ return LocalState.images.find(im=>im.id===id) || null; },
+  async addImage(projectId, name, url){
+    const order = (await this.listImages(projectId)).length;
+    const img = { id: uid('img'), projectId, name, url, order };
+    LocalState.images.push(img);
+    await this.touchProject(projectId);
+    return img;
+  },
+  async renameImage(id, name){
+    const img = LocalState.images.find(x=>x.id===id);
+    if (img) img.name = name.trim();
+    return img;
+  },
+  async reorderImage(id, direction){
+    const current = await this.getImage(id);
+    const list = await this.listImages(current.projectId);
+    const i = list.findIndex(im=>im.id===id);
+    const j = direction === 'up' ? i-1 : i+1;
+    if (j<0 || j>=list.length) return;
+    [list[i].order, list[j].order] = [list[j].order, list[i].order];
+  },
+  async deleteImage(id){
+    const idx = LocalState.images.findIndex(im=>im.id===id);
+    if (idx === -1) return null;
+    const [removed] = LocalState.images.splice(idx,1);
+    const removedHotspots = LocalState.hotspots.filter(h=>h.imageId===id);
+    LocalState.hotspots = LocalState.hotspots.filter(h=>h.imageId!==id);
+    return { image: removed, hotspots: removedHotspots };
+  },
+  async restoreImage(bundle){
+    if (!bundle) return;
+    LocalState.images.push(bundle.image);
+    LocalState.hotspots.push(...bundle.hotspots);
+  },
+
+  // ---- Hotspot / Content（擁有者：Image）----
+  // CR-005：Hotspot 改為矩形區域（x,y = 左上角 %，width,height = 寬高 %），
+  // 取代原本的圓形 + radius，因為教材中的物件多半不是圓形（牛奶瓶、一排雞蛋、一個句子...）。
+  async listHotspots(imageId){
+    return LocalState.hotspots.filter(h=>h.imageId===imageId).sort((a,b)=>a.order-b.order);
+  },
+  async getHotspot(id){ return LocalState.hotspots.find(h=>h.id===id) || null; },
+  async addHotspot(imageId, clickX, clickY){
+    const order = (await this.listHotspots(imageId)).length;
+    const DEFAULT_W = 12, DEFAULT_H = 8; // % of image width/height，建立時置中於點擊位置
+    const x = Math.max(0, Math.min(100 - DEFAULT_W, clickX - DEFAULT_W / 2));
+    const y = Math.max(0, Math.min(100 - DEFAULT_H, clickY - DEFAULT_H / 2));
+    // CR-009：language 對應 Naming Specification 已定義的「語言」資料物件（教材使用的語言），
+    // 不是為了 Media Specification 新增的欄位——這是發音要唸「哪一種語言」的必要資訊。
+    const h = { id: uid('hot'), imageId, x, y, width: DEFAULT_W, height: DEFAULT_H, text:'', language:'en-US', completed:false, order };
+    LocalState.hotspots.push(h);
+    return h;
+  },
+  async updateHotspotText(id, text){
+    const h = LocalState.hotspots.find(x=>x.id===id);
+    if (h){ h.text = text; h.completed = false; } // 內容變更代表尚未確認完成，需重新按「完成」
+  },
+  async updateHotspotLanguage(id, language){
+    const h = LocalState.hotspots.find(x=>x.id===id);
+    if (h) h.language = language;
+  },
+  async updateHotspotBox(id, box){
+    const h = LocalState.hotspots.find(x=>x.id===id);
+    if (h) Object.assign(h, box); // box: { x, y, width, height }（全部為 % 單位）
+  },
+  async setHotspotCompleted(id, completed){
+    const h = LocalState.hotspots.find(x=>x.id===id);
+    if (h) h.completed = completed;
+  },
+  async deleteHotspot(id){
+    const idx = LocalState.hotspots.findIndex(h=>h.id===id);
+    if (idx === -1) return null;
+    const [removed] = LocalState.hotspots.splice(idx,1);
+    return removed;
+  },
+  async restoreHotspot(h){ if (h) LocalState.hotspots.push(h); }
+};
+
+// Store：讓 i18n（L()）等仍需同步讀取語言設定的地方，維持簡單存取。
+// 資料操作一律透過 Repository（async），Store.state 僅保留少量同步旗標。
+const Store = { state: LocalState };
+
+/* ---------------------------------------------------------------------
+   3. UI helpers — Toast（UX-08 立即回饋）／Dialog／EmptyState（UX-13）
+   -------------------------------------------------------------------- */
+function toast(message, opts){
+  opts = opts || {};
+  const host = document.getElementById('toast-host');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span>${message}</span>` + (opts.actionLabel ? `<button type="button">${opts.actionLabel}</button>` : '');
+  if (opts.actionLabel){
+    el.querySelector('button').addEventListener('click', ()=>{
+      opts.onAction && opts.onAction();
+      el.remove();
+    });
+  }
+  host.appendChild(el);
+  setTimeout(()=>{ el.remove(); }, opts.duration || 4200);
+}
+
+function savedToast(){ toast(`已自動儲存 · Saved`); }
+
+/*
+ * MVP-001：點擊 Hotspot → 顯示文字 → 播放發音，是這個產品的核心互動。
+ * Media Specification（教材音檔的來源、格式、上傳、儲存）還沒定案，所以這裡刻意
+ * 不去設計「老師上傳/錄製發音檔案」那一整套機制——而是先用瀏覽器／裝置內建的
+ * 語音朗讀能力（Web Speech API），把「聽發音」這個核心體驗完整跑起來。
+ * 之後 Media Specification 定案後，只需要把這個函式內部換成「播放真正的音檔」，
+ * 呼叫方式（speak(text, lang)）不需要改變。
+ *
+ * CR-009：語言不是固定寫死的，而是依「這個 Hotspot 的語言」動態決定：
+ * - utterance.lang 直接採用呼叫方傳入的 lang（來自 hotspot.language，對應
+ *   Naming Specification 已定義的「語言」資料物件），不是介面語言、也不是寫死的常數。
+ * - 會用 getVoices() 主動找一個「語言完全相符」的 voice；找不到時退而求其次找
+ *   「語系前綴相符」的 voice（例如要 ja-JP，但裝置只有 ja 開頭的其他 voice）；
+ *   找到的話明確指定 utterance.voice，不是只設定 lang 就交給瀏覽器自己猜。
+ * - 每次呼叫都會印出完整除錯資訊（文字／語言／實際使用的 voice），並在「找不到
+ *   對應語言的 voice」時分開用 warning 提示，跟其他錯誤（例如 synthesis-failed）
+ *   區分開來，方便判斷是「程式設定問題」還是「裝置沒有安裝該語言的語音」。
+ *
+ * 已知環境限制（不是程式邏輯錯誤，是瀏覽器／作業系統本身的語音能力）：
+ * - 需要瀏覽器支援 Web Speech API（Chrome／Edge／Safari 最新版通常支援）。
+ * - 需要作業系統安裝「該語言」的語音包，否則即使程式正確設定了 lang，也可能無聲
+ *   ——這是作業系統層級的限制，程式無法補上，只能盡量把診斷資訊呈現清楚。
+ */
+const TTS_LANG_LABELS = { 'en-US':'English', 'zh-TW':'中文', 'ja-JP':'日本語' };
+
+let __ttsVoicesPrimed = false;
+if ('speechSynthesis' in window){
+  const primeVoices = ()=>{ __ttsVoicesPrimed = window.speechSynthesis.getVoices().length > 0; };
+  primeVoices();
+  window.speechSynthesis.onvoiceschanged = primeVoices;
+}
+
+// CR-010：直接在 Console 打 ttsListVoices()，就能看到目前瀏覽器／裝置抓到的所有語音，
+// 不需要每次都靠 Hotspot 點擊才能檢查。用 console.table 讓 lang / name 一眼就能比對。
+function ttsListVoices(){
+  const voices = ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
+  console.log(`[speak] 目前偵測到 ${voices.length} 個系統語音：`);
+  if (voices.length){
+    console.table(voices.map(v=>({ name:v.name, lang:v.lang, default:v.default, localService:v.localService })));
+  }
+  return voices;
+}
+window.ttsListVoices = ttsListVoices;
+
+// CR-009 問題2：依語言找對應 voice——先找完全相符（ja-JP === ja-JP），
+// 找不到再找語系前綴相符（ja === ja-*）當備援。
+function findVoiceForLang(voices, lang){
+  if (!lang) return null;
+  const exact = voices.find(v=>v.lang === lang);
+  if (exact) return exact;
+  const prefix = lang.split('-')[0];
+  return voices.find(v=>v.lang && v.lang.split('-')[0] === prefix) || null;
+}
+
+function speak(text, lang){
+  if (!text) return;
+  lang = lang || 'en-US';
+  if (!('speechSynthesis' in window)){
+    console.warn('[speak] 這個瀏覽器不支援語音朗讀（Web Speech API）。');
+    toast('這個瀏覽器不支援語音朗讀');
+    return;
+  }
+
+  const doSpeak = ()=>{
+    const voices = window.speechSynthesis.getVoices();
+    const matchedVoice = findVoiceForLang(voices, lang);
+
+    // CR-009 問題3：找不到對應語言 voice 時，明確分開提示，不要跟其他錯誤混在一起
+    if (voices.length === 0){
+      console.warn('[speak] 偵測不到任何系統語音（0 個 voice）。請確認作業系統已安裝文字轉語音功能。');
+      toast('偵測不到系統語音，請確認瀏覽器／作業系統已安裝文字轉語音功能');
+    } else if (!matchedVoice){
+      const label = TTS_LANG_LABELS[lang] || lang;
+      console.warn(`[speak] 裝置上沒有安裝「${lang}」（${label}）的語音，將改用瀏覽器預設語音朗讀，發音可能不準確。`);
+      toast(`裝置沒有安裝「${label}」語音，請確認作業系統的語音套件`);
+    }
+
+    window.speechSynthesis.cancel(); // 避免上一次朗讀還沒結束就疊加播放
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = lang; // CR-009 問題1：依 Hotspot 語言動態設定，不是固定寫死
+    if (matchedVoice) utter.voice = matchedVoice;
+    utter.onerror = (e)=> console.error(
+      `[speak] 朗讀失敗：${e.error} | text="${text}" lang="${lang}" voice="${matchedVoice?.name || '(none)'}" voiceLang="${matchedVoice?.lang || '(none)'}"`
+    );
+    utter.onstart = ()=> console.log(`[speak] 開始播放 | text="${text}" lang="${lang}"`);
+
+    // CR-010：Debug Log 直接放在同一行，Console 不用展開 Object 就能一眼看到全部關鍵資訊；
+    // 完整物件另外印一份方便程式化檢查（例如 copy(...)）。
+    const voiceLang = matchedVoice ? matchedVoice.lang : '(none)';
+    const voiceName = matchedVoice ? matchedVoice.name : '(none)';
+    const matchType = !matchedVoice ? 'no-match' : (matchedVoice.lang === lang ? 'exact' : 'prefix-fallback');
+    console.log(`[speak] text="${text}" lang="${lang}" voice="${voiceName}" voiceLang="${voiceLang}" match="${matchType}"`);
+    console.log('[speak] 詳細資訊：', { text, lang, voice: voiceName, voiceLang, matchType, totalVoicesAvailable: voices.length });
+
+    window.speechSynthesis.speak(utter);
+  };
+
+  if (__ttsVoicesPrimed || window.speechSynthesis.getVoices().length > 0){
+    doSpeak();
+  } else {
+    // Chrome 常見狀況：頁面剛載入時語音清單可能還沒準備好，等 voiceschanged 或短暫逾時後再試一次
+    let attempted = false;
+    window.speechSynthesis.onvoiceschanged = ()=>{ if (!attempted){ attempted = true; doSpeak(); } };
+    setTimeout(()=>{ if (!attempted){ attempted = true; doSpeak(); } }, 300);
+  }
+}
+
+let dialogRoot = null;
+function closeDialog(){
+  if (dialogRoot){ dialogRoot.remove(); dialogRoot = null; }
+}
+function openDialog({ title, bodyHtml, onMount, actions }){
+  closeDialog();
+  const overlay = document.createElement('div');
+  overlay.className = 'dialog-overlay';
+  overlay.innerHTML = `
+    <div class="dialog" role="dialog" aria-modal="true">
+      <h2>${title}</h2>
+      <div class="dialog-body">${bodyHtml || ''}</div>
+      <div class="dialog-actions"></div>
+    </div>`;
+  overlay.addEventListener('click', (e)=>{ if (e.target === overlay) closeDialog(); });
+  document.body.appendChild(overlay);
+  dialogRoot = overlay;
+  const actionsHost = overlay.querySelector('.dialog-actions');
+  (actions||[]).forEach(a=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `btn ${a.className || 'btn-ghost'}`;
+    btn.textContent = a.label;
+    btn.addEventListener('click', ()=>{ a.onClick && a.onClick(); });
+    actionsHost.appendChild(btn);
+  });
+  onMount && onMount(overlay);
+  const firstInput = overlay.querySelector('input, textarea');
+  if (firstInput) firstInput.focus();
+}
+
+function emptyStateHtml({ icon, title, desc }){
+  return `<div class="empty-state">
+    <div class="icon">${icon}</div>
+    <div style="font-weight:600;font-size:15px;">${title}</div>
+    <p>${desc}</p>
+  </div>`;
+}
+
+// CR-007：Project／Image 共用的重新命名對話框
+function renameDialog({ title, fieldLabel, currentName, onConfirm }){
+  openDialog({
+    title,
+    bodyHtml: `<div class="field"><label>${fieldLabel}</label><input type="text" id="renameInput" value="${escapeAttr(currentName)}"></div>`,
+    actions: [
+      { label:'取消', className:'btn-ghost', onClick: closeDialog },
+      { label:L('Rename'), className:'btn-primary', onClick: ()=>{
+          const val = document.getElementById('renameInput').value.trim();
+          if (!val) return;
+          closeDialog();
+          onConfirm(val);
+        } }
+    ]
+  });
+  const input = document.getElementById('renameInput');
+  input.focus();
+  input.select();
+  input.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter') document.querySelector('.dialog-actions .btn-primary').click();
+  });
+}
+
+/* ---------------------------------------------------------------------
+   4. Router — 依 Navigation Specification 的固定層級導覽
+      Library → Project → Image Editor（返回時逐層回上一層，不跳回首頁）
+      同層另保留 scroll / search / sort 等工作狀態（NAV-13）
+   -------------------------------------------------------------------- */
+const Router = {
+  stack: [{ screen:'welcome' }],
+  screenState: {}, // 依畫面保存 search 關鍵字等工作狀態（NAV-13）
+
+  get current(){ return this.stack[this.stack.length-1]; },
+
+  go(screen, params){
+    this.stack.push(Object.assign({ screen }, params||{}));
+    render();
+  },
+  replace(screen, params){
+    this.stack[this.stack.length-1] = Object.assign({ screen }, params||{});
+    render();
+  },
+  back(){
+    if (this.stack.length > 1){ this.stack.pop(); render(); }
+  },
+  resetTo(screen, params){
+    this.stack = [Object.assign({ screen }, params||{})];
+    render();
+  },
+  getState(key, fallback){
+    return (this.screenState[key] !== undefined) ? this.screenState[key] : fallback;
+  },
+  setState(key, value){ this.screenState[key] = value; }
+};
+
+/* ---------------------------------------------------------------------
+   5. Screens — SCR-001 ~ SCR-008
+   -------------------------------------------------------------------- */
+const app = document.getElementById('app');
+
+// 需要登入才能進入的畫面（工作型畫面）；Session 失效時導回 Login，而不是讓畫面在
+// 沒有使用者資料的情況下嘗試渲染（對應 CR 要求的 Session Expired Handling 原則）。
+const AUTH_REQUIRED_SCREENS = new Set(['library','project','imageEditor','reading','settings']);
+
+function render(){
+  window.__readingCleanup && window.__readingCleanup();
+  window.__readingCleanup = null;
+  const { screen } = Router.current;
+
+  if (AUTH_REQUIRED_SCREENS.has(screen) && !LocalState.currentUser){
+    Router.resetTo('login');
+    return;
+  }
+
+  const map = {
+    welcome: renderWelcome,
+    entryMethod: renderEntryMethod,
+    login: renderLogin,
+    library: renderLibrary,
+    project: renderProject,
+    imageEditor: renderImageEditor,
+    reading: renderReading,
+    settings: renderSettings
+  };
+  (map[screen] || renderWelcome)();
+  window.scrollTo(0,0);
+}
+
+/* ---- SCR-001 Welcome（NAV-04）---- */
+function renderWelcome(){
+  app.innerHTML = `
+    <div class="welcome">
+      <button type="button" class="skip-link" id="skipBtn">Skip（略過）</button>
+      <div class="welcome-anim">
+        <div class="welcome-photo">
+          <div class="hotspot-dot" style="left:30%; top:38%; animation-delay:.4s;"></div>
+          <div class="hotspot-dot" style="left:62%; top:58%; animation-delay:.9s;"></div>
+          <div class="hotspot-dot" style="left:78%; top:28%; animation-delay:1.4s;"></div>
+        </div>
+      </div>
+      <h1>${EN_NAMES.Welcome}（歡迎使用）</h1>
+      <p>把任何一張圖片變成互動教材。點一下圖片上的重點，就能顯示說明、播放發音。老師只需要專心製作內容。</p>
+      <div class="welcome-actions">
+        <button type="button" class="btn btn-primary" id="startBtn">開始使用 Get Started</button>
+      </div>
+    </div>`;
+  const goNext = ()=> Router.go('entryMethod');
+  document.getElementById('skipBtn').addEventListener('click', goNext);
+  document.getElementById('startBtn').addEventListener('click', goNext);
+  // NAV-04：動畫播放完成後自動進入下一步
+  window.__welcomeTimer = setTimeout(goNext, 3200);
+}
+
+/* ---- SCR-002 Entry Method（NAV-05 / NAV-06）---- */
+function renderEntryMethod(){
+  clearTimeout(window.__welcomeTimer);
+  const cameFromSettings = Router.stack.length >= 2 && Router.stack[Router.stack.length-2].screen === 'settings';
+  const options = [
+    { icon:'🔖', title:'加入書籤 Bookmark', desc:'在桌面瀏覽器使用 Ctrl/Cmd + D 加入書籤，下次從瀏覽器書籤列直接開啟。' },
+    { icon:'📱', title:'加入主畫面 Add to Home Screen', desc:'在手機瀏覽器選單選擇「加入主畫面」，像 App 一樣一鍵開啟。' },
+    { icon:'🔗', title:'繼續使用網址 Continue with URL', desc:'直接記住網址，之後手動輸入網址進入。' }
+  ];
+  app.innerHTML = `
+    <div class="screen">
+      <div class="screen-header">
+        <button type="button" class="btn-icon" id="backBtn" aria-label="${L('Back')}">←</button>
+        <h1>${L('EntryMethod')}</h1>
+      </div>
+      <div class="centered-screen">
+        <div style="max-width:380px;width:100%;">
+          <p style="color:var(--color-text-soft);font-size:13px;margin-bottom:16px;">
+            選擇最適合你的使用方式，之後可以在「${L('Settings')}」隨時重新設定。
+          </p>
+          <div class="option-list">
+            ${options.map((o,i)=>`
+              <button type="button" class="option-card selectable" data-i="${i}">
+                <span class="icon">${o.icon}</span>
+                <span>
+                  <div class="title">${o.title}</div>
+                  <div class="desc">${o.desc}</div>
+                </span>
+              </button>`).join('')}
+          </div>
+          <button type="button" class="btn btn-primary" id="continueBtn" style="width:100%;justify-content:center;margin-top:18px;">
+            繼續 Continue
+          </button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('backBtn').addEventListener('click', ()=> Router.back());
+  let selected = null;
+  document.querySelectorAll('.option-card').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      document.querySelectorAll('.option-card').forEach(c=>c.style.borderColor = 'var(--color-border)');
+      el.style.borderColor = 'var(--color-primary)';
+      selected = options[el.dataset.i].title;
+    });
+  });
+  document.getElementById('continueBtn').addEventListener('click', ()=>{
+    Repository.setEntryMethodConfigured(true);
+    if (cameFromSettings){
+      toast(selected ? `已更新進入方式：${selected}` : '進入方式設定已略過');
+      Router.back();
+    } else {
+      Router.go('login');
+    }
+  });
+}
+
+/* ---- SCR-003 Login（NAV-07；技術細節留待 Authentication Specification）---- */
+function renderLogin(){
+  app.innerHTML = `
+    <div class="centered-screen" style="min-height:100vh;">
+      <div class="auth-card">
+        <h1>${L('Login')}</h1>
+        <p>登入以開始管理你的教材專案</p>
+        <button type="button" class="btn auth-btn" id="googleBtn">🔵 使用 Google 帳號登入</button>
+        <button type="button" class="btn auth-btn" id="appleBtn"> 使用 Apple 帳號登入</button>
+        <button type="button" class="btn auth-btn" id="emailBtn">✉️ 使用 Email 登入</button>
+        <div style="font-size:11px;color:var(--color-text-soft);margin-top:14px;">
+          登入機制為示意用途 <span class="badge-dev">待 Authentication Specification</span>
+        </div>
+      </div>
+    </div>`;
+
+  // 登入成功後的流程：Authenticate → Read Profile → Read Plan → Read Storage → Open Library。
+  // 目前每一步讀到的都是 login() 當下放進去的假資料，但呼叫順序已經是最終架構的樣子——
+  // 之後 Authentication／Storage Specification 定案，只需要讓這幾個 Repository 方法
+  // 內部改成真正的 API 呼叫，這裡的流程完全不用重寫。
+  async function completeLogin(provider, label){
+    await Repository.login(provider, label);       // Authenticate User
+    const profile = await Repository.getCurrentUser(); // Read User Profile（含 Plan）
+    await Repository.getStorageUsage();             // Read Storage Usage
+    toast(`歡迎回來，${profile.name}`);
+    Router.resetTo('library');                      // Open Library
+  }
+
+  document.getElementById('googleBtn').addEventListener('click', ()=> completeLogin('google', '老師'));
+  document.getElementById('appleBtn').addEventListener('click', ()=> completeLogin('apple', '老師'));
+  document.getElementById('emailBtn').addEventListener('click', ()=>{
+    openDialog({
+      title: '使用 Email 登入',
+      bodyHtml: `<div class="field"><label>Email</label><input type="text" id="emailInput" placeholder="teacher@example.com"></div>`,
+      actions: [
+        { label:'取消', className:'btn-ghost', onClick: closeDialog },
+        { label:'登入', className:'btn-primary', onClick: async ()=>{
+            const val = document.getElementById('emailInput').value.trim() || '老師';
+            closeDialog();
+            await completeLogin('email', val);
+          } }
+      ]
+    });
+  });
+}
+
+/* ---- SCR-004 Library（NAV-08：建立 / 開啟 / 搜尋 / 刪除專案）---- */
+function renderLibrary(){
+  const query = Router.getState('librarySearch', '');
+
+  app.innerHTML = `
+    <div class="screen">
+      <div class="screen-header">
+        <h1>📚 ${L('Library')}</h1>
+        <button type="button" class="btn-icon" id="settingsBtn" aria-label="${L('Settings')}">⚙️</button>
+      </div>
+      <div class="screen-workspace wide">
+        <div class="toolbar">
+          <div class="search-bar">
+            <span>🔍</span>
+            <input type="text" id="searchInput" placeholder="${L('SearchProject')}" value="${escapeAttr(query)}">
+          </div>
+          <button type="button" class="btn btn-accent" id="newProjectBtn">＋ ${L('NewProject')}</button>
+        </div>
+        <div id="libraryBody">${loadingHtml()}</div>
+      </div>
+    </div>`;
+
+  document.getElementById('settingsBtn').addEventListener('click', ()=> Router.go('settings'));
+  document.getElementById('newProjectBtn').addEventListener('click', openNewProjectDialog);
+  const searchInput = document.getElementById('searchInput');
+  searchInput.addEventListener('input', (e)=>{
+    Router.setState('librarySearch', e.target.value);
+    renderLibraryBody();
+  });
+
+  renderLibraryBody();
+
+  // UX-09（即時回應）示範：資料尚未回來前先顯示 Loading，
+  // 目前 Repository 是記憶體運算幾乎瞬間完成，但呼叫方式已對齊未來真正的網路請求。
+  async function renderLibraryBody(){
+    const q = Router.getState('librarySearch', '');
+    const body = document.getElementById('libraryBody');
+    const list = await Repository.listProjects(q);
+    if (Router.getState('librarySearch', '') !== q) return; // 期間使用者已輸入新關鍵字，捨棄過期結果
+
+    if (list.length === 0){
+      body.innerHTML = q
+        ? emptyStateHtml({ icon:'🔍', title:'找不到符合的專案。', desc:'換個關鍵字，或直接建立一個新專案。' })
+        : emptyStateHtml({ icon:'📁', title:'尚未建立專案', desc:'建立第一個專案，開始製作互動教材。' });
+      const btnHtml = `<button type="button" class="btn btn-accent" id="emptyNewProjectBtn" style="margin-top:4px;">＋ ${L('NewProject')}</button>`;
+      body.querySelector('.empty-state').insertAdjacentHTML('beforeend', btnHtml);
+      document.getElementById('emptyNewProjectBtn').addEventListener('click', openNewProjectDialog);
+      return;
+    }
+
+    const imageCounts = await Promise.all(list.map(p => Repository.listImages(p.id)));
+    body.innerHTML = `<div class="grid">${list.map((p,i)=>{
+      const imgCount = imageCounts[i].length;
+      return `
+      <div class="card" data-id="${p.id}">
+        <div class="card-thumb">📁</div>
+        <div class="card-title">${escapeHtml(p.name)}</div>
+        <div class="card-meta"><span>${imgCount} 張圖片</span><span>${formatDate(p.updatedAt)}</span></div>
+        <div class="card-actions">
+          <button type="button" class="btn btn-ghost" data-open="${p.id}" style="flex:1;">開啟</button>
+          <button type="button" class="btn-icon rename-project" data-id="${p.id}" aria-label="${L('Rename')}" title="${L('Rename')}">✏️</button>
+          <button type="button" class="btn-icon delete-project" data-del="${p.id}" aria-label="${L('Delete')}">🗑</button>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+    body.querySelectorAll('[data-open]').forEach(el=> el.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      Router.go('project', { projectId: el.dataset.open });
+    }));
+    body.querySelectorAll('.card').forEach(el=> el.addEventListener('click', ()=>{
+      Router.go('project', { projectId: el.dataset.id });
+    }));
+    body.querySelectorAll('.rename-project').forEach(el=> el.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const proj = await Repository.getProject(el.dataset.id);
+      renameDialog({
+        title: `${L('Rename')} ${L('Project')}`,
+        fieldLabel: '專案名稱',
+        currentName: proj.name,
+        onConfirm: async (newName)=>{
+          await Repository.renameProject(proj.id, newName);
+          renderLibraryBody();
+          savedToast();
+        }
+      });
+    }));
+    body.querySelectorAll('.delete-project').forEach(el=> el.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const proj = await Repository.getProject(el.dataset.del);
+      openDialog({
+        title: `刪除「${escapeHtml(proj.name)}」？`,
+        bodyHtml: `<p style="font-size:13px;color:var(--color-text-soft);">專案內的圖片與互動點也會一併刪除。刪除後可在提示中選擇復原。</p>`,
+        actions: [
+          { label:'取消', className:'btn-ghost', onClick: closeDialog },
+          { label:'刪除專案', className:'btn-danger', onClick: async ()=>{
+              const bundle = await Repository.deleteProject(proj.id);
+              closeDialog();
+              renderLibraryBody();
+              toast(`已刪除專案「${escapeHtml(proj.name)}」`, {
+                actionLabel:'復原 Undo',
+                onAction: async ()=>{ await Repository.restoreProject(bundle); renderLibraryBody(); }
+              });
+            } }
+        ]
+      });
+    }));
+  }
+
+  function openNewProjectDialog(){
+    openDialog({
+      title: `${L('NewProject')}`,
+      bodyHtml: `<div class="field"><label>專案名稱</label><input type="text" id="projNameInput" placeholder="例如：Brown Bear"></div>`,
+      actions: [
+        { label:'取消', className:'btn-ghost', onClick: closeDialog },
+        { label:L('Create'), className:'btn-primary', onClick: async ()=>{
+            const val = document.getElementById('projNameInput').value.trim();
+            if (!val) return;
+            const p = await Repository.createProject(val);
+            closeDialog();
+            renderLibraryBody();
+            toast(`已新增專案「${escapeHtml(p.name)}」`);
+          } }
+      ]
+    });
+    document.getElementById('projNameInput').addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter') document.querySelector('.dialog-actions .btn-primary').click();
+    });
+  }
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s){ return escapeHtml(s); }
+function formatDate(ts){
+  const d = new Date(ts);
+  return `${d.getMonth()+1}/${d.getDate()}`;
+}
+function loadingHtml(){
+  return `<div class="empty-state"><div class="icon">⏳</div><p>載入中 · Loading</p></div>`;
+}
+
+/* ---- SCR-005 Project（NAV-09：新增 / 排序 / 刪除 / 開啟圖片）---- */
+function renderProject(){
+  const { projectId } = Router.current;
+  app.innerHTML = `<div class="screen"><div class="screen-workspace">${loadingHtml()}</div></div>`;
+
+  (async ()=>{
+    const project = await Repository.getProject(projectId);
+    if (!project){ Router.resetTo('library'); return; }
+    if (Router.current.screen !== 'project' || Router.current.projectId !== projectId) return; // 使用者已離開此畫面
+
+    app.innerHTML = `
+    <div class="screen">
+      <div class="screen-header">
+        <button type="button" class="btn-icon" id="backBtn" aria-label="${L('Back')}">←</button>
+        <div class="header-title-group">
+          <h1 id="projectTitle">📁 ${escapeHtml(project.name)}</h1>
+          <button type="button" class="btn-icon" id="renameProjectBtn" aria-label="${L('Rename')}" title="${L('Rename')} ${L('Project')}">✏️</button>
+        </div>
+      </div>
+      <div class="screen-workspace wide">
+        <div class="toolbar">
+          <div style="font-size:13px;color:var(--color-text-soft);">${L('Project')}</div>
+          <button type="button" class="btn btn-accent" id="newImageBtn">＋ ${L('NewImage')}</button>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" multiple hidden>
+        <div id="projectBody">${loadingHtml()}</div>
+      </div>
+    </div>`;
+
+    document.getElementById('backBtn').addEventListener('click', ()=> Router.back());
+    document.getElementById('renameProjectBtn').addEventListener('click', ()=>{
+      renameDialog({
+        title: `${L('Rename')} ${L('Project')}`,
+        fieldLabel: '專案名稱',
+        currentName: project.name,
+        onConfirm: async (newName)=>{
+          await Repository.renameProject(project.id, newName);
+          project.name = newName;
+          document.getElementById('projectTitle').textContent = `📁 ${newName}`;
+          savedToast();
+        }
+      });
+    });
+    const fileInput = document.getElementById('fileInput');
+    document.getElementById('newImageBtn').addEventListener('click', ()=> fileInput.click());
+    fileInput.addEventListener('change', async (e)=>{
+      // TODO(Media Specification)：正式的圖片來源、壓縮、格式轉換、雲端儲存規則待補。
+      // MVP 僅示範瀏覽器原生檔案選取 + 暫時性 Object URL（重新整理即消失）。
+      const files = Array.from(e.target.files || []);
+      fileInput.value = '';
+      if (files.length === 0) return;
+
+      if (files.length === 1){
+        // CR-007：單張新增時，讓老師直接輸入有意義的 Image Name（預設帶入檔名，可自由修改）
+        const f = files[0];
+        const defaultName = f.name.replace(/\.[a-zA-Z0-9]+$/, '');
+        openDialog({
+          title: L('NewImage'),
+          bodyHtml: `<div class="field"><label>圖片名稱</label><input type="text" id="imgNameInput" value="${escapeAttr(defaultName)}"></div>`,
+          actions: [
+            { label:'取消', className:'btn-ghost', onClick: closeDialog },
+            { label:L('Create'), className:'btn-primary', onClick: async ()=>{
+                const val = document.getElementById('imgNameInput').value.trim() || defaultName;
+                closeDialog();
+                const url = URL.createObjectURL(f);
+                await Repository.addImage(project.id, val, url);
+                renderProjectBody();
+                toast(`已新增圖片「${escapeHtml(val)}」`);
+              } }
+          ]
+        });
+        const nameInput = document.getElementById('imgNameInput');
+        nameInput.focus(); nameInput.select();
+        nameInput.addEventListener('keydown', (ev)=>{
+          if (ev.key === 'Enter') document.querySelector('.dialog-actions .btn-primary').click();
+        });
+      } else {
+        // 批次新增：沿用檔名作為預設名稱，避免逐張命名打斷流程（UX-04 不打斷工作流程）；
+        // 之後仍可在每張圖片上個別「重新命名」。
+        for (const f of files){
+          const url = URL.createObjectURL(f);
+          await Repository.addImage(project.id, f.name.replace(/\.[a-zA-Z0-9]+$/, ''), url);
+        }
+        renderProjectBody();
+        toast(`已新增 ${files.length} 張圖片`);
+      }
+    });
+
+    renderProjectBody();
+
+    async function renderProjectBody(){
+      const body = document.getElementById('projectBody');
+      const images = await Repository.listImages(project.id);
+      if (images.length === 0){
+        body.innerHTML = emptyStateHtml({ icon:'🖼', title:'尚未新增圖片', desc:'新增圖片後，即可在圖片上建立互動點。' });
+        body.querySelector('.empty-state').insertAdjacentHTML('beforeend',
+          `<button type="button" class="btn btn-accent" id="emptyNewImageBtn">＋ ${L('NewImage')}</button>`);
+        document.getElementById('emptyNewImageBtn').addEventListener('click', ()=> fileInput.click());
+        return;
+      }
+      const hotspotCounts = await Promise.all(images.map(img => Repository.listHotspots(img.id)));
+      body.innerHTML = `<div class="grid">${images.map((img,i)=>{
+        const hotspotCount = hotspotCounts[i].length;
+        return `
+        <div class="card" data-id="${img.id}">
+          <div class="card-thumb"><img src="${img.url}" alt="${escapeHtml(img.name)}"></div>
+          <div class="card-title">${escapeHtml(img.name)}</div>
+          <div class="card-meta"><span>${hotspotCount} 個互動點</span></div>
+          <div class="card-actions">
+            <button type="button" class="btn-icon reorder-up" data-id="${img.id}" ${i===0?'disabled':''} aria-label="上移">▲</button>
+            <button type="button" class="btn-icon reorder-down" data-id="${img.id}" ${i===images.length-1?'disabled':''} aria-label="下移">▼</button>
+            <button type="button" class="btn btn-ghost" data-open="${img.id}" style="flex:1;">開啟</button>
+            <button type="button" class="btn-icon rename-image" data-id="${img.id}" aria-label="${L('Rename')}" title="${L('Rename')}">✏️</button>
+            <button type="button" class="btn-icon delete-image" data-id="${img.id}" aria-label="${L('Delete')}">🗑</button>
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+
+      body.querySelectorAll('.card').forEach(el=> el.addEventListener('click', ()=>{
+        Router.go('imageEditor', { projectId: project.id, imageId: el.dataset.id });
+      }));
+      body.querySelectorAll('[data-open]').forEach(el=> el.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        Router.go('imageEditor', { projectId: project.id, imageId: el.dataset.open });
+      }));
+      body.querySelectorAll('.reorder-up').forEach(el=> el.addEventListener('click', async (e)=>{
+        e.stopPropagation(); await Repository.reorderImage(el.dataset.id, 'up'); renderProjectBody();
+      }));
+      body.querySelectorAll('.reorder-down').forEach(el=> el.addEventListener('click', async (e)=>{
+        e.stopPropagation(); await Repository.reorderImage(el.dataset.id, 'down'); renderProjectBody();
+      }));
+      body.querySelectorAll('.rename-image').forEach(el=> el.addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        const img = await Repository.getImage(el.dataset.id);
+        renameDialog({
+          title: `${L('Rename')} ${L('Image')}`,
+          fieldLabel: '圖片名稱',
+          currentName: img.name,
+          onConfirm: async (newName)=>{
+            await Repository.renameImage(img.id, newName);
+            renderProjectBody();
+            savedToast();
+          }
+        });
+      }));
+      body.querySelectorAll('.delete-image').forEach(el=> el.addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        const img = await Repository.getImage(el.dataset.id);
+        openDialog({
+          title: `刪除「${escapeHtml(img.name)}」？`,
+          bodyHtml: `<p style="font-size:13px;color:var(--color-text-soft);">圖片上的互動點也會一併刪除。</p>`,
+          actions: [
+            { label:'取消', className:'btn-ghost', onClick: closeDialog },
+            { label:'刪除圖片', className:'btn-danger', onClick: async ()=>{
+                const bundle = await Repository.deleteImage(img.id);
+                closeDialog();
+                renderProjectBody();
+                toast(`已刪除圖片「${escapeHtml(img.name)}」`, {
+                  actionLabel:'復原 Undo',
+                  onAction: async ()=>{ await Repository.restoreImage(bundle); renderProjectBody(); }
+                });
+              } }
+          ]
+        });
+      }));
+    }
+  })();
+}
+
+/* ---- SCR-006 Image Editor（互動設定）（NAV-10 / Interaction Specification IP-01/IP-02）
+      CR-001：Zoom / Pan / Fit / 100% / ＋－（Screen Specification §8）
+      CR-005：Hotspot 改為可拖曳／可調整大小的矩形區域，取代原本的圓形 + 固定比例縮放 ---- */
+function renderImageEditor(){
+  const { projectId, imageId } = Router.current;
+  const selectedKey = `editor_selected_${imageId}`;
+  const viewKey = `editor_view_${imageId}`;
+  app.innerHTML = `<div class="screen"><div class="screen-workspace">${loadingHtml()}</div></div>`;
+
+  // Handle 對應：這個控制點拖曳時，哪些邊界會跟著移動（對邊固定不動）
+  const HANDLE_EDGES = {
+    nw:['left','top'], n:['top'], ne:['right','top'],
+    e:['right'], se:['right','bottom'], s:['bottom'],
+    sw:['left','bottom'], w:['left']
+  };
+  const HANDLE_TYPES = ['nw','n','ne','e','se','s','sw','w'];
+  const MIN_SIZE = 2; // % of image，避免拖到反轉或消失
+
+  (async ()=>{
+    const image = await Repository.getImage(imageId);
+    if (!image){ Router.resetTo('library'); return; }
+    if (Router.current.screen !== 'imageEditor' || Router.current.imageId !== imageId) return;
+
+    app.innerHTML = `
+    <div class="screen">
+      <div class="screen-header">
+        <button type="button" class="btn-icon" id="backBtn" aria-label="${L('Back')}">←</button>
+        <div class="header-title-group">
+          <h1 id="imageTitle">🖼 ${escapeHtml(image.name)}</h1>
+          <button type="button" class="btn-icon" id="renameImageBtn" aria-label="${L('Rename')}" title="${L('Rename')} ${L('Image')}">✏️</button>
+        </div>
+        <button type="button" class="btn btn-ghost" id="previewBtn">👁 ${L('ReadingMode')}</button>
+        <button type="button" class="btn btn-primary" id="finishBtn">✓ ${L('FinishSetup')}</button>
+      </div>
+      <div class="editor-layout">
+        <div class="editor-canvas-wrap" id="canvasWrap">
+          <div class="editor-viewport" id="editorViewport">
+            <div id="editor-image-frame">
+              <img src="${image.url}" alt="${escapeHtml(image.name)}" draggable="false">
+            </div>
+          </div>
+          <div class="zoom-bar">
+            <button type="button" class="zoom-fit-btn" id="fitBtn" title="Fit（適合視窗）">Fit</button>
+            <button type="button" class="zoom-100-btn" id="actualBtn" title="100%（原始大小）">100%</button>
+            <div class="zoom-divider"></div>
+            <button type="button" id="zoomOutBtn" aria-label="縮小" title="縮小">－</button>
+            <span class="zoom-pct" id="zoomPct">100%</span>
+            <button type="button" id="zoomInBtn" aria-label="放大" title="放大">＋</button>
+          </div>
+        </div>
+        <div class="editor-panel">
+          <div class="editor-panel-section">
+            <h3>互動點 Hotspots</h3>
+            <div id="hotspotList"></div>
+            <p style="font-size:12px;color:var(--color-text-soft);margin-top:10px;">點擊左側圖片新增互動點；拖曳框體移動、拖曳邊角調整大小。滾輪縮放、拖曳空白處可平移畫面。</p>
+          </div>
+          <div class="editor-panel-section" id="contentSection" style="display:none;">
+            <h3>內容 Content</h3>
+            <div class="field">
+              <label>說明文字</label>
+              <textarea id="hotspotText" rows="4" placeholder="輸入這個互動點要顯示的說明..."></textarea>
+            </div>
+            <div class="field">
+              <label>${L('Language')}</label>
+              <select id="hotspotLang">
+                <option value="en-US">English</option>
+                <option value="zh-TW">中文</option>
+                <option value="ja-JP">日本語</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>${L('HotspotSize')}</label>
+              <input type="range" id="hotspotSize" min="2" max="50" step="0.5">
+            </div>
+            <button type="button" class="btn btn-ghost" id="playAudioBtn" style="width:100%;justify-content:center;">
+              🔊 播放發音 <span class="badge-info">系統朗讀</span>
+            </button>
+            <button type="button" class="btn btn-primary" id="doneHotspotBtn" style="width:100%;justify-content:center;margin-top:14px;">
+              ✓ ${L('Done')}
+            </button>
+            <button type="button" class="btn btn-danger" id="deleteHotspotBtn" style="width:100%;justify-content:center;margin-top:8px;">
+              ${L('Delete')} 互動點
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    document.getElementById('backBtn').addEventListener('click', ()=>{ commitPendingEdit(); Router.back(); });
+    document.getElementById('renameImageBtn').addEventListener('click', ()=>{
+      renameDialog({
+        title: `${L('Rename')} ${L('Image')}`,
+        fieldLabel: '圖片名稱',
+        currentName: image.name,
+        onConfirm: async (newName)=>{
+          await Repository.renameImage(image.id, newName);
+          image.name = newName;
+          document.getElementById('imageTitle').textContent = `🖼 ${newName}`;
+          savedToast();
+        }
+      });
+    });
+    document.getElementById('previewBtn').addEventListener('click', ()=>{ commitPendingEdit(); Router.go('reading', { projectId, imageId }); });
+    document.getElementById('finishBtn').addEventListener('click', async ()=>{
+      // 「完成設定」不是額外的儲存動作（Auto Save 已持續進行），
+      // 而是給使用者明確的結束訊號，呼應一般編輯器（Canva／PowerPoint...）的操作習慣。
+      commitPendingEdit();
+      Router.setState(selectedKey, null);
+      const count = (await Repository.listHotspots(image.id)).length;
+      toast(`已完成「${escapeHtml(image.name)}」的圖片設定，共 ${count} 個互動點`);
+      Router.back();
+    });
+
+    const canvasWrap = document.getElementById('canvasWrap');
+    const viewport = document.getElementById('editorViewport');
+    const frame = document.getElementById('editor-image-frame');
+    const imgEl = frame.querySelector('img');
+    const zoomPct = document.getElementById('zoomPct');
+
+    // BLOCKER-001：不依賴瀏覽器 blur/input 事件的先後順序，切換 Hotspot 或離開畫面前，
+    // 一律先把畫面上目前的輸入框內容明確寫回 Repository，確保「切換 Hotspot → 保存目前
+    // 資料 → 讀取下一個 Hotspot 資料」這個資料流程是確定的，不是碰運氣的事件時機。
+    function commitPendingEdit(){
+      const currentId = Router.getState(selectedKey, null);
+      if (!currentId) return;
+      const section = document.getElementById('contentSection');
+      const textarea = document.getElementById('hotspotText');
+      if (section && textarea && section.style.display !== 'none'){
+        Repository.updateHotspotText(currentId, textarea.value);
+      }
+    }
+
+    // ---- 縮放 / 平移狀態（Screen Specification §8 View Modes）----
+    let naturalW = 0, naturalH = 0;
+    let scale = 1, tx = 0, ty = 0;
+    const MIN_SCALE = 0.08, MAX_SCALE = 8;
+    let suppressNextClick = false; // 剛完成一次 Hotspot 拖曳/縮放時，忽略隨後那次 click，避免誤觸新增
+
+    function fitScale(){
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      if (!naturalW || !naturalH) return 1;
+      return Math.min((wrapRect.width - 32) / naturalW, (wrapRect.height - 72) / naturalH, 4);
+    }
+    function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
+
+    function centerAt(s){
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      tx = (wrapRect.width - naturalW * s) / 2;
+      ty = (wrapRect.height - naturalH * s) / 2;
+    }
+
+    // Hotspot 的框體大小／位置用 % 定位，隨圖片一起縮放（自動繼承 viewport 的 transform）；
+    // 只有 label／check／resize handle 這些「UI 控制元件」需要反向縮放，維持固定螢幕大小方便操作。
+    function styleHotspotChrome(boxEl){
+      const label = boxEl.querySelector('.hotspot-label');
+      if (label) label.style.transform = `translate(0,-100%) scale(${1/scale})`;
+      const check = boxEl.querySelector('.hotspot-check');
+      if (check) check.style.transform = `translate(50%,50%) scale(${1/scale})`;
+      boxEl.querySelectorAll('.hotspot-handle').forEach(hd=>{
+        hd.style.transform = `translate(-50%, -50%) scale(${1/scale})`;
+      });
+    }
+
+    function applyTransform(){
+      viewport.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      zoomPct.textContent = Math.round(scale * 100) + '%';
+      frame.querySelectorAll('.hotspot-box').forEach(styleHotspotChrome);
+      // NAV-13 / UX-15：記住縮放比例與畫面位置（session 內；跨裝置/跨次登入的持久化留待 Storage Specification）
+      Router.setState(viewKey, { scale, tx, ty });
+    }
+
+    function setFit(){ scale = clamp(fitScale(), MIN_SCALE, MAX_SCALE); centerAt(scale); applyTransform(); }
+    function setActual(){ scale = 1; centerAt(scale); applyTransform(); }
+
+    function zoomTo(newScale, atX, atY){
+      newScale = clamp(newScale, MIN_SCALE, MAX_SCALE);
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      const mx = atX !== undefined ? atX : wrapRect.width / 2;
+      const my = atY !== undefined ? atY : wrapRect.height / 2;
+      const contentX = (mx - tx) / scale;
+      const contentY = (my - ty) / scale;
+      scale = newScale;
+      tx = mx - contentX * scale;
+      ty = my - contentY * scale;
+      applyTransform();
+    }
+
+    function initView(){
+      naturalW = imgEl.naturalWidth;
+      naturalH = imgEl.naturalHeight;
+      frame.style.width = naturalW + 'px';
+      frame.style.height = naturalH + 'px';
+      imgEl.style.width = naturalW + 'px';
+      imgEl.style.height = naturalH + 'px';
+      const saved = Router.getState(viewKey, null);
+      if (saved){ scale = saved.scale; tx = saved.tx; ty = saved.ty; applyTransform(); }
+      else { setFit(); }
+      refresh();
+    }
+    if (imgEl.complete && imgEl.naturalWidth){ initView(); }
+    else { imgEl.addEventListener('load', initView); }
+
+    document.getElementById('fitBtn').addEventListener('click', setFit);
+    document.getElementById('actualBtn').addEventListener('click', setActual);
+    document.getElementById('zoomInBtn').addEventListener('click', ()=> zoomTo(scale * 1.25));
+    document.getElementById('zoomOutBtn').addEventListener('click', ()=> zoomTo(scale / 1.25));
+    canvasWrap.addEventListener('wheel', (e)=>{
+      e.preventDefault();
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+      zoomTo(scale * factor, e.clientX - wrapRect.left, e.clientY - wrapRect.top);
+    }, { passive:false });
+
+    // ---- 拖曳平移畫面（Interaction Specification IP-01：拖曳優先）----
+    // 註：Hotspot 框體／控制點自己的 pointerdown 會 stopPropagation，
+    // 所以這裡收到事件時，代表使用者是在空白處按下，一律視為平移。
+    let panning = false, panOccurred = false, startX=0, startY=0, startTx=0, startTy=0;
+    canvasWrap.addEventListener('pointerdown', (e)=>{
+      if (e.target.closest('.zoom-bar')) return;
+      panning = true; panOccurred = false;
+      startX = e.clientX; startY = e.clientY; startTx = tx; startTy = ty;
+      canvasWrap.setPointerCapture(e.pointerId);
+    });
+    canvasWrap.addEventListener('pointermove', (e)=>{
+      if (!panning) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panOccurred = true;
+      tx = startTx + dx; ty = startTy + dy;
+      applyTransform();
+      canvasWrap.classList.add('panning');
+    });
+    function endPan(){ panning = false; canvasWrap.classList.remove('panning'); }
+    canvasWrap.addEventListener('pointerup', endPan);
+    canvasWrap.addEventListener('pointercancel', endPan);
+
+    canvasWrap.addEventListener('click', async (e)=>{
+      if (panOccurred){ panOccurred = false; return; } // IP-01：判定為拖曳時不新增互動點
+      if (suppressNextClick){ suppressNextClick = false; return; } // 剛拖完/縮放完某個 Hotspot
+      if (e.target.closest('.hotspot-box') || e.target.closest('.zoom-bar')) return;
+      if (!naturalW) return;
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      const mx = e.clientX - wrapRect.left, my = e.clientY - wrapRect.top;
+      const x = ((mx - tx) / scale / naturalW) * 100;
+      const y = ((my - ty) / scale / naturalH) * 100;
+      if (x < 0 || x > 100 || y < 0 || y > 100) return;
+      commitPendingEdit();
+      const h = await Repository.addHotspot(image.id, x, y);
+      Router.setState(selectedKey, h.id);
+      savedToast();
+      refresh();
+    });
+
+    // ---- 單一 Hotspot 框體的移動／調整大小互動 ----
+    function attachBoxInteractions(boxEl, hotspot){
+      boxEl.addEventListener('pointerdown', (e)=>{
+        if (e.target.closest('.hotspot-handle')) return; // 交給 handle 自己處理
+        e.stopPropagation();
+        boxEl.setPointerCapture(e.pointerId);
+        const startClientX = e.clientX, startClientY = e.clientY;
+        const startBX = hotspot.x, startBY = hotspot.y, W = hotspot.width, H = hotspot.height;
+        let liveX = startBX, liveY = startBY, moved = false;
+        function onMove(ev){
+          const dxPct = (ev.clientX - startClientX) / scale / naturalW * 100;
+          const dyPct = (ev.clientY - startClientY) / scale / naturalH * 100;
+          if (Math.abs(dxPct) + Math.abs(dyPct) > 0.15) moved = true;
+          liveX = clamp(startBX + dxPct, 0, 100 - W);
+          liveY = clamp(startBY + dyPct, 0, 100 - H);
+          boxEl.style.left = liveX + '%'; boxEl.style.top = liveY + '%';
+        }
+        function onUp(){
+          boxEl.removeEventListener('pointermove', onMove);
+          boxEl.removeEventListener('pointerup', onUp);
+          boxEl.removeEventListener('pointercancel', onUp);
+          if (moved){
+            suppressNextClick = true;
+            hotspot.x = liveX; hotspot.y = liveY;
+            Repository.updateHotspotBox(hotspot.id, { x:liveX, y:liveY, width:W, height:H });
+            savedToast();
+          }
+        }
+        boxEl.addEventListener('pointermove', onMove);
+        boxEl.addEventListener('pointerup', onUp);
+        boxEl.addEventListener('pointercancel', onUp);
+      });
+
+      // Interaction Specification IP-02：Hotspot 優先 — 點擊立即 highlight，不被其他動畫延遲
+      boxEl.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        if (suppressNextClick){ suppressNextClick = false; return; } // 這次是拖曳結束，不當作選取點擊
+        commitPendingEdit();
+        Router.setState(selectedKey, hotspot.id);
+        refresh();
+      });
+
+      boxEl.querySelectorAll('.hotspot-handle').forEach(handle=>{
+        handle.addEventListener('pointerdown', (e)=>{
+          e.stopPropagation();
+          handle.setPointerCapture(e.pointerId);
+          const type = handle.dataset.h;
+          const edges = HANDLE_EDGES[type];
+          const startClientX = e.clientX, startClientY = e.clientY;
+          const startBX = hotspot.x, startBY = hotspot.y, startW = hotspot.width, startH = hotspot.height;
+          const fixedRight = startBX + startW, fixedBottom = startBY + startH;
+          let liveX = startBX, liveY = startBY, liveW = startW, liveH = startH;
+          function onMove(ev){
+            const dxPct = (ev.clientX - startClientX) / scale / naturalW * 100;
+            const dyPct = (ev.clientY - startClientY) / scale / naturalH * 100;
+            let newX = startBX, newY = startBY, newW = startW, newH = startH;
+            if (edges.includes('left')){
+              const newLeft = clamp(startBX + dxPct, 0, fixedRight - MIN_SIZE);
+              newX = newLeft; newW = fixedRight - newLeft;
+            }
+            if (edges.includes('right')){
+              const newRight = clamp(startBX + startW + dxPct, startBX + MIN_SIZE, 100);
+              newW = newRight - startBX;
+            }
+            if (edges.includes('top')){
+              const newTop = clamp(startBY + dyPct, 0, fixedBottom - MIN_SIZE);
+              newY = newTop; newH = fixedBottom - newTop;
+            }
+            if (edges.includes('bottom')){
+              const newBottom = clamp(startBY + startH + dyPct, startBY + MIN_SIZE, 100);
+              newH = newBottom - startBY;
+            }
+            liveX = newX; liveY = newY; liveW = newW; liveH = newH;
+            boxEl.style.left = newX + '%'; boxEl.style.top = newY + '%';
+            boxEl.style.width = newW + '%'; boxEl.style.height = newH + '%';
+          }
+          function onUp(){
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            handle.removeEventListener('pointercancel', onUp);
+            suppressNextClick = true;
+            hotspot.x = liveX; hotspot.y = liveY; hotspot.width = liveW; hotspot.height = liveH;
+            Repository.updateHotspotBox(hotspot.id, { x:liveX, y:liveY, width:liveW, height:liveH });
+            savedToast();
+            // 拖曳大小結束後，若目前正在編輯這個 Hotspot，同步更新滑桿數值
+            const sizeSlider = document.getElementById('hotspotSize');
+            if (sizeSlider && Router.getState(selectedKey, null) === hotspot.id){
+              sizeSlider.value = liveW;
+            }
+          }
+          handle.addEventListener('pointermove', onMove);
+          handle.addEventListener('pointerup', onUp);
+          handle.addEventListener('pointercancel', onUp);
+        });
+      });
+    }
+
+    async function refresh(){
+      const hotspots = await Repository.listHotspots(image.id);
+      const selectedId = Router.getState(selectedKey, null);
+
+      frame.querySelectorAll('.hotspot-box').forEach(el=>el.remove());
+      hotspots.forEach((h, i)=>{
+        const isActive = h.id === selectedId;
+        const box = document.createElement('div');
+        box.className = 'hotspot-box' + (isActive ? ' active' : '') + (h.completed ? ' completed' : '');
+        box.style.left = h.x + '%';
+        box.style.top = h.y + '%';
+        box.style.width = h.width + '%';
+        box.style.height = h.height + '%';
+
+        const label = document.createElement('span');
+        label.className = 'hotspot-label';
+        label.textContent = i + 1;
+        box.appendChild(label);
+
+        if (h.completed){
+          const check = document.createElement('span');
+          check.className = 'hotspot-check';
+          check.textContent = '✓';
+          box.appendChild(check);
+        }
+
+        // CR-005：僅選取中的 Hotspot 顯示 8 個調整控制點，避免畫面雜亂
+        if (isActive){
+          HANDLE_TYPES.forEach(type=>{
+            const handle = document.createElement('div');
+            handle.className = 'hotspot-handle';
+            handle.dataset.h = type;
+            const pos = {
+              nw:[0,0], n:[50,0], ne:[100,0], e:[100,50],
+              se:[100,100], s:[50,100], sw:[0,100], w:[0,50]
+            }[type];
+            handle.style.left = pos[0] + '%';
+            handle.style.top = pos[1] + '%';
+            box.appendChild(handle);
+          });
+        }
+
+        styleHotspotChrome(box);
+        attachBoxInteractions(box, h);
+        frame.appendChild(box);
+      });
+
+      // 互動點清單
+      const listHost = document.getElementById('hotspotList');
+      if (hotspots.length === 0){
+        listHost.innerHTML = `<p style="font-size:12px;color:var(--color-text-soft);">尚無互動點。</p>`;
+      } else {
+        listHost.innerHTML = hotspots.map((h,i)=>`
+          <div class="hotspot-list-item ${h.id===selectedId?'active':''} ${h.completed?'completed':''}" data-id="${h.id}">
+            <span class="status-icon" style="color:${h.completed ? 'var(--color-primary)' : 'var(--color-accent)'};">${h.completed ? '✓' : '●'}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              ${escapeHtml(h.text) || `互動點 ${i+1}（尚未完成）`}
+            </span>
+          </div>`).join('');
+        listHost.querySelectorAll('.hotspot-list-item').forEach(el=>{
+          el.addEventListener('click', ()=>{
+            commitPendingEdit();
+            Router.setState(selectedKey, el.dataset.id);
+            refresh();
+          });
+        });
+      }
+
+      // 內容編輯區
+      const section = document.getElementById('contentSection');
+      const selected = selectedId ? await Repository.getHotspot(selectedId) : null;
+      if (!selected){
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = 'block';
+      const textarea = document.getElementById('hotspotText');
+      textarea.value = selected.text;
+      const langSelect = document.getElementById('hotspotLang');
+      langSelect.value = selected.language || 'en-US';
+      const sizeSlider = document.getElementById('hotspotSize');
+      sizeSlider.value = selected.width;
+      // 滑桿是「快速縮放工具」：固定目前的寬高比，等比例縮放並保持中心點不動；
+      // 精確調整仍以拖曳四邊/四角為主。長寬比在每次選取時重新鎖定一次。
+      const aspect = selected.height / selected.width;
+
+      // 輸入時先做「樂觀更新（Optimistic Update）」：畫面立即反應，
+      // 之後才把寫入請求送到 Repository —— 真正接上雲端後，這裡的模式不需要改變。
+      textarea.oninput = (e)=>{
+        Repository.updateHotspotText(selected.id, e.target.value);
+        const item = listHost.querySelector(`[data-id="${selected.id}"] span:last-child`);
+        if (item) item.textContent = e.target.value || `互動點（尚未完成）`;
+        // 內容變更代表尚未確認完成：立即拿掉畫面上的「已完成」標記，避免顯示過期狀態
+        const boxEl = frame.querySelector(`.hotspot-box.active`);
+        if (boxEl && boxEl.classList.contains('completed')){
+          boxEl.classList.remove('completed');
+          const chk = boxEl.querySelector('.hotspot-check'); if (chk) chk.remove();
+        }
+        const rowEl = listHost.querySelector(`[data-id="${selected.id}"]`);
+        if (rowEl && rowEl.classList.contains('completed')){
+          rowEl.classList.remove('completed');
+          const icon = rowEl.querySelector('.status-icon');
+          if (icon){ icon.textContent = '●'; icon.style.color = 'var(--color-accent)'; }
+        }
+      };
+      textarea.onblur = savedToast;
+
+      // CR-009：每個 Hotspot 各自記住自己的發音語言，切換介面語言不會影響已設定的教材內容
+      langSelect.onchange = (e)=>{
+        selected.language = e.target.value;
+        Repository.updateHotspotLanguage(selected.id, e.target.value);
+        savedToast();
+      };
+
+      // MVP-001：老師可在編輯時預覽點擊後學生會聽到的發音內容；CR-009：依這個 Hotspot 設定的語言播放
+      document.getElementById('playAudioBtn').onclick = ()=> speak(textarea.value, langSelect.value);
+
+      sizeSlider.oninput = (e)=>{
+        const newW = parseFloat(e.target.value);
+        const newH = clamp(newW * aspect, MIN_SIZE, 100);
+        const cx = selected.x + selected.width / 2, cy = selected.y + selected.height / 2;
+        const newX = clamp(cx - newW / 2, 0, 100 - newW);
+        const newY = clamp(cy - newH / 2, 0, 100 - newH);
+        selected.x = newX; selected.y = newY; selected.width = newW; selected.height = newH;
+        Repository.updateHotspotBox(selected.id, { x:newX, y:newY, width:newW, height:newH });
+        const boxEl = frame.querySelector(`.hotspot-box.active`);
+        if (boxEl){
+          boxEl.style.left = newX + '%'; boxEl.style.top = newY + '%';
+          boxEl.style.width = newW + '%'; boxEl.style.height = newH + '%';
+        }
+      };
+      sizeSlider.onchange = savedToast;
+
+      document.getElementById('doneHotspotBtn').onclick = async ()=>{
+        // 「完成」不是另一次儲存（內容早已透過 Auto Save 持續寫入），
+        // 而是讓使用者明確知道「這個互動點我確認好了」，並收合編輯面板。
+        commitPendingEdit();
+        await Repository.setHotspotCompleted(selected.id, true);
+        toast('✓ 已完成此互動點設定');
+        Router.setState(selectedKey, null);
+        refresh();
+      };
+      document.getElementById('deleteHotspotBtn').onclick = async ()=>{
+        const removed = await Repository.deleteHotspot(selected.id);
+        Router.setState(selectedKey, null);
+        refresh();
+        toast('已刪除互動點', {
+          actionLabel:'復原 Undo',
+          onAction: async ()=>{ await Repository.restoreHotspot(removed); Router.setState(selectedKey, removed.id); refresh(); }
+        });
+      };
+    }
+  })();
+}
+
+/* ---- SCR-007 Reading Mode（閱讀模式）（Screen Specification §6 RM-01~RM-07）
+      CR-005：不顯示任何 Hotspot 編號／圖示／邊框／控制點，畫面只留原始圖片，
+      互動區域完全隱形，點擊後才以短暫 Highlight 給予回饋。
+      CR-006：圖片區支援 Zoom / Pan（RM-06），圖片區與文字區為可拖曳的 Split Pane（RM-07），
+      比例與縮放狀態依 UX-15 於 session 內記住。 ---- */
+function renderReading(){
+  const { projectId, imageId } = Router.current;
+  const viewKey = `reading_view_${imageId}`;
+  const splitKey = `reading_split_${imageId}`;
+  app.innerHTML = `<div class="reading-mode"><div class="reading-stage">${loadingHtml()}</div></div>`;
+
+  (async ()=>{
+    const image = await Repository.getImage(imageId);
+    if (!image){ Router.resetTo('library'); return; }
+    if (Router.current.screen !== 'reading' || Router.current.imageId !== imageId) return;
+    const hotspots = await Repository.listHotspots(image.id);
+
+    app.innerHTML = `
+    <div class="reading-mode">
+      <div class="reading-header" id="readingHeader">
+        <button type="button" class="btn-icon" id="exitReadingBtn" aria-label="${L('Back')}">←</button>
+        <h2>${escapeHtml(image.name)}</h2>
+      </div>
+      <div class="reading-split" id="readingSplit">
+        <div class="reading-stage" id="readingStage">
+          <div class="reading-viewport" id="readingViewport">
+            <div id="reading-image-frame">
+              <img src="${image.url}" alt="${escapeHtml(image.name)}" draggable="false" id="readingImg">
+            </div>
+          </div>
+          <div class="zoom-bar">
+            <button type="button" class="zoom-fit-btn" id="rFitBtn" title="Fit（適合視窗）">Fit</button>
+            <button type="button" class="zoom-100-btn" id="rActualBtn" title="100%（原始大小）">100%</button>
+            <div class="zoom-divider"></div>
+            <button type="button" id="rZoomOutBtn" aria-label="縮小" title="縮小">－</button>
+            <span class="zoom-pct" id="rZoomPct">100%</span>
+            <button type="button" id="rZoomInBtn" aria-label="放大" title="放大">＋</button>
+          </div>
+        </div>
+        <div class="reading-divider" id="readingDivider" role="separator" aria-orientation="horizontal" aria-label="調整圖片區／文字區比例"></div>
+        <div class="reading-panel" id="readingPanel">
+          <p id="readingPanelText" class="placeholder">點擊圖片查看內容 · Tap the image to explore</p>
+        </div>
+      </div>
+    </div>`;
+
+    const header = document.getElementById('readingHeader');
+    const split = document.getElementById('readingSplit');
+    const stage = document.getElementById('readingStage');
+    const viewport = document.getElementById('readingViewport');
+    const frame = document.getElementById('reading-image-frame');
+    const img = document.getElementById('readingImg');
+    const divider = document.getElementById('readingDivider');
+    const panel = document.getElementById('readingPanel');
+    const zoomPct = document.getElementById('rZoomPct');
+    let hideTimer = null;
+
+    function showHeader(){
+      header.classList.add('visible');
+      clearTimeout(hideTimer);
+      // RM-05：Header 幾秒後自動隱藏，恢復全螢幕閱讀
+      hideTimer = setTimeout(()=> header.classList.remove('visible'), 3000);
+    }
+
+    /* ---------------- CR-006 問題二：Split Pane（RM-07 可調整高度）---------------- */
+    const DIVIDER_H = 16;
+    let splitRatio = Router.getState(splitKey, 0.66); // 圖片區占比；預設把較多空間留給圖片
+    function applySplit(){
+      const total = split.clientHeight;
+      const available = Math.max(0, total - DIVIDER_H);
+      const stageH = Math.round(available * splitRatio);
+      stage.style.height = stageH + 'px';
+      panel.style.height = (available - stageH) + 'px';
+      repositionRegions();
+    }
+    let dividerDragging = false, dividerStartY = 0, dividerStartRatio = splitRatio;
+    divider.addEventListener('pointerdown', (e)=>{
+      dividerDragging = true; dividerStartY = e.clientY; dividerStartRatio = splitRatio;
+      divider.classList.add('dragging');
+      divider.setPointerCapture(e.pointerId);
+    });
+    divider.addEventListener('pointermove', (e)=>{
+      if (!dividerDragging) return;
+      const total = Math.max(1, split.clientHeight - DIVIDER_H);
+      const dy = e.clientY - dividerStartY;
+      // 向下拖曳：圖片區增加高度；向上拖曳：文字區增加高度
+      splitRatio = clamp(dividerStartRatio + dy / total, 0.15, 0.88);
+      Router.setState(splitKey, splitRatio); // RM-07：記住高度
+      applySplit();
+    });
+    function endDividerDrag(){ dividerDragging = false; divider.classList.remove('dragging'); }
+    divider.addEventListener('pointerup', endDividerDrag);
+    divider.addEventListener('pointercancel', endDividerDrag);
+
+    /* ---------------- CR-006 問題一：圖片區 Zoom / Pan（RM-06）---------------- */
+    let naturalW = 0, naturalH = 0, scale = 1, tx = 0, ty = 0;
+    const MIN_SCALE = 0.08, MAX_SCALE = 8;
+    function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
+
+    function fitScale(){
+      const rect = stage.getBoundingClientRect();
+      if (!naturalW || !naturalH) return 1;
+      return Math.min(rect.width / naturalW, rect.height / naturalH, 4); // 保持比例（Maintain Aspect Ratio）
+    }
+    function centerAt(s){
+      const rect = stage.getBoundingClientRect();
+      tx = (rect.width - naturalW * s) / 2;
+      ty = (rect.height - naturalH * s) / 2;
+    }
+    function applyTransform(){
+      viewport.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      zoomPct.textContent = Math.round(scale * 100) + '%';
+      Router.setState(viewKey, { scale, tx, ty }); // UX-15：記住縮放比例與畫面位置
+    }
+    function setFit(){ scale = clamp(fitScale(), MIN_SCALE, MAX_SCALE); centerAt(scale); applyTransform(); }
+    function setActual(){ scale = 1; centerAt(scale); applyTransform(); }
+    function zoomTo(newScale, atX, atY){
+      newScale = clamp(newScale, MIN_SCALE, MAX_SCALE);
+      const rect = stage.getBoundingClientRect();
+      const mx = atX !== undefined ? atX : rect.width / 2;
+      const my = atY !== undefined ? atY : rect.height / 2;
+      const contentX = (mx - tx) / scale, contentY = (my - ty) / scale;
+      scale = newScale;
+      tx = mx - contentX * scale; ty = my - contentY * scale;
+      applyTransform();
+    }
+    document.getElementById('rFitBtn').addEventListener('click', setFit);
+    document.getElementById('rActualBtn').addEventListener('click', setActual);
+    document.getElementById('rZoomInBtn').addEventListener('click', ()=> zoomTo(scale * 1.25));
+    document.getElementById('rZoomOutBtn').addEventListener('click', ()=> zoomTo(scale / 1.25));
+    stage.addEventListener('wheel', (e)=>{
+      e.preventDefault();
+      const rect = stage.getBoundingClientRect();
+      const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+      zoomTo(scale * factor, e.clientX - rect.left, e.clientY - rect.top);
+    }, { passive:false });
+
+    // 放大超出可視範圍時，可拖曳（觸控／滑鼠皆可，Pointer Events 統一處理）Pan 調整位置
+    let panning = false, panOccurred = false, panStartX=0, panStartY=0, panStartTx=0, panStartTy=0;
+    stage.addEventListener('pointerdown', (e)=>{
+      if (e.target.closest('.zoom-bar') || e.target.closest('.reading-hotspot')) return;
+      panning = true; panOccurred = false;
+      panStartX = e.clientX; panStartY = e.clientY; panStartTx = tx; panStartTy = ty;
+      stage.setPointerCapture(e.pointerId);
+    });
+    stage.addEventListener('pointermove', (e)=>{
+      if (!panning) return;
+      const dx = e.clientX - panStartX, dy = e.clientY - panStartY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panOccurred = true;
+      tx = panStartTx + dx; ty = panStartTy + dy;
+      applyTransform();
+      stage.classList.add('panning');
+    });
+    function endPan(){ panning = false; stage.classList.remove('panning'); }
+    stage.addEventListener('pointerup', endPan);
+    stage.addEventListener('pointercancel', endPan);
+
+    // RM-03：點擊空白處（非拖曳、非 Hotspot），Header 自頂端滑出
+    stage.addEventListener('click', (e)=>{
+      if (panOccurred){ panOccurred = false; return; }
+      if (e.target.closest('.reading-hotspot') || e.target.closest('.zoom-bar')) return;
+      showHeader();
+    });
+
+    /* ---------------- Hotspot 隱形互動區域（CR-005）位置隨 Zoom/Pan 同步 ---------------- */
+    // 因為 region 是 % 定位並放在會被 transform 縮放的 frame 內，位置/大小天生會跟著 Zoom 同步，
+    // 不需要每次縮放都重新計算——只有 Split Pane 改變 stage 大小時才需要重新置中 Fit。
+    function buildRegions(){
+      frame.querySelectorAll('.reading-hotspot').forEach(r=>r.remove());
+      hotspots.forEach(h=>{
+        const region = document.createElement('div');
+        region.className = 'reading-hotspot';
+        region.style.left = h.x + '%';
+        region.style.top = h.y + '%';
+        region.style.width = h.width + '%';
+        region.style.height = h.height + '%';
+        region.innerHTML = `<div class="flash"></div>`;
+        region.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          // Interaction Specification IP-02：Hotspot 優先，立即回饋 + 更新 Reading Area
+          region.classList.add('flashing');
+          setTimeout(()=> region.classList.remove('flashing'), 380);
+          const p = document.getElementById('readingPanelText');
+          p.textContent = h.text || '（尚未設定說明文字）';
+          p.classList.remove('placeholder');
+          // MVP-001：點擊 → 顯示文字 → 播放發音（見 speak() 註解，目前為系統朗讀過渡方案）
+          if (h.text) speak(h.text, h.language);
+        });
+        frame.appendChild(region);
+      });
+    }
+    function repositionRegions(){ /* %-based + 繼承 transform，Split Pane 改變高度時只需重新 Fit 一次 */ }
+
+    function initView(){
+      naturalW = img.naturalWidth; naturalH = img.naturalHeight;
+      frame.style.width = naturalW + 'px';
+      frame.style.height = naturalH + 'px';
+      img.style.width = naturalW + 'px';
+      img.style.height = naturalH + 'px';
+      buildRegions();
+      applySplit();
+      const saved = Router.getState(viewKey, null);
+      if (saved){ scale = saved.scale; tx = saved.tx; ty = saved.ty; applyTransform(); }
+      else { setFit(); }
+    }
+    if (img.complete && img.naturalWidth){ initView(); }
+    else { img.addEventListener('load', initView); }
+
+    window.addEventListener('resize', applySplit);
+    document.getElementById('exitReadingBtn').addEventListener('click', ()=> Router.back());
+    showHeader();
+
+    window.__readingCleanup = ()=>{
+      clearTimeout(hideTimer);
+      window.removeEventListener('resize', applySplit);
+    };
+  })();
+}
+
+/* ---- SCR-008 Settings（User Menu：帳戶／儲存空間／一般設定／登出）---- */
+function renderSettings(){
+  app.innerHTML = `<div class="screen"><div class="screen-workspace">${loadingHtml()}</div></div>`;
+
+  (async ()=>{
+    const user = await Repository.getCurrentUser();
+    const usage = await Repository.getStorageUsage();
+    if (!user){ Router.resetTo('login'); return; }
+    const usedPct = usage ? Math.min(100, Math.round((usage.usedMB / usage.limitMB) * 100)) : 0;
+
+    app.innerHTML = `
+    <div class="screen">
+      <div class="screen-header">
+        <button type="button" class="btn-icon" id="backBtn" aria-label="${L('Back')}">←</button>
+        <h1>⚙️ ${L('Settings')}</h1>
+      </div>
+      <div class="screen-workspace">
+
+        <h3 class="settings-section-title">我的帳戶 My Account</h3>
+        <div class="settings-list">
+          <div class="settings-row">
+            <div>
+              <div class="title">${escapeHtml(user.name)}</div>
+              <div class="desc">${escapeHtml(user.email)} · ${escapeHtml(user.provider)}</div>
+            </div>
+            <span class="badge-info">${escapeHtml(user.plan)} 方案</span>
+          </div>
+        </div>
+
+        <h3 class="settings-section-title">儲存空間 Storage</h3>
+        <div class="settings-list">
+          <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span>已使用 ${usage ? usage.usedMB : 0} MB</span>
+              <span style="color:var(--color-text-soft);">上限 ${usage ? usage.limitMB : 0} MB</span>
+            </div>
+            <div class="storage-bar"><div class="storage-bar-fill" style="width:${usedPct}%;"></div></div>
+            <div style="font-size:11px;color:var(--color-text-soft);">實際用量計算方式待 Storage Specification 定案 <span class="badge-dev">示意資料</span></div>
+          </div>
+        </div>
+
+        <h3 class="settings-section-title">一般設定 General</h3>
+        <div class="settings-list">
+          <div class="settings-row">
+            <div>
+              <div class="title">${L('EntryMethod')}</div>
+              <div class="desc">重新選擇加入書籤、主畫面或使用網址</div>
+            </div>
+            <button type="button" class="btn btn-ghost" id="entryMethodBtn">重新設定</button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="title">介面語言 Language</div>
+              <div class="desc">系統介面固定顯示 English（本地語言）；教材內容不受影響</div>
+            </div>
+            <select class="lang-select" id="langSelect">
+              ${SUPPORTED_LANGS.map(l=>`<option value="${l.code}" ${l.code===Store.state.language?'selected':''}>${l.label}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <h3 class="settings-section-title">&nbsp;</h3>
+        <div class="settings-list">
+          <div class="settings-row">
+            <div>
+              <div class="title">登出 Sign Out</div>
+              <div class="desc">結束目前的登入狀態</div>
+            </div>
+            <button type="button" class="btn btn-danger" id="logoutBtn">登出</button>
+          </div>
+        </div>
+
+      </div>
+    </div>`;
+
+    document.getElementById('backBtn').addEventListener('click', ()=> Router.back());
+    document.getElementById('entryMethodBtn').addEventListener('click', ()=> Router.go('entryMethod'));
+    document.getElementById('langSelect').addEventListener('change', async (e)=>{
+      await Repository.setLanguage(e.target.value);
+      render();
+      toast('已更新介面語言');
+    });
+    document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+      await Repository.logout();
+      Router.resetTo('login');
+    });
+  })();
+}
+
+// App 啟動流程：Launch → Check Session → 有效就直接進 Library，無效才走 Welcome。
+// checkSession() 目前一定回傳 null（MVP 無持久化 Session，見 Repository 頂部說明），
+// 但流程本身已經是最終架構的樣子，之後接上真正的 Session 只需要換 checkSession() 內部。
+(async ()=>{
+  const session = await Repository.checkSession();
+  if (session && session.user){
+    LocalState.currentUser = session.user;
+    Router.resetTo('library');
+  } else {
+    render();
+  }
+})();
+</script>
+</body>
+</html>
