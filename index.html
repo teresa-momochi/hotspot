@@ -213,6 +213,7 @@
     position:absolute; left:0; top:0; transform:translate(0,-100%);
     background:var(--color-accent); color:#3A2A0A; font-weight:700; font-size:11px;
     padding:2px 6px; border-radius:4px 4px 4px 0; white-space:nowrap; pointer-events:none;
+    max-width:160px; overflow:hidden; text-overflow:ellipsis;
   }
   .hotspot-box.active .hotspot-label{ background:var(--color-primary); color:#fff; }
   .hotspot-check{
@@ -1379,6 +1380,10 @@ function renderLibrary(){
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function truncateLabel(text, maxLen){
+  const clean = text.trim();
+  return clean.length > maxLen ? clean.slice(0, maxLen) + '…' : clean;
+}
 function escapeAttr(s){ return escapeHtml(s); }
 function formatDate(ts){
   const d = new Date(ts);
@@ -1622,7 +1627,7 @@ function renderImageEditor(){
             <p style="font-size:12px;color:var(--color-text-soft);margin-top:10px;">點擊左側圖片新增互動點；拖曳框體移動、拖曳邊角調整大小。滾輪縮放、拖曳空白處可平移畫面。</p>
           </div>
           <div class="editor-panel-section" id="contentSection" style="display:none;">
-            <h3>內容 Content</h3>
+            <h3>內容 Content <span id="contentHotspotIndex" style="color:var(--color-primary);"></span></h3>
             <div class="field">
               <label>說明文字</label>
               <textarea id="hotspotText" rows="4" placeholder="輸入這個互動點要顯示的說明..."></textarea>
@@ -1936,6 +1941,7 @@ function renderImageEditor(){
         const isActive = h.id === selectedId;
         const box = document.createElement('div');
         box.className = 'hotspot-box' + (isActive ? ' active' : '') + (h.completed ? ' completed' : '');
+        box.dataset.index = i + 1;
         box.style.left = h.x + '%';
         box.style.top = h.y + '%';
         box.style.width = h.width + '%';
@@ -1943,7 +1949,10 @@ function renderImageEditor(){
 
         const label = document.createElement('span');
         label.className = 'hotspot-label';
-        label.textContent = i + 1;
+        // 老師回饋：互動點跟文字說明離太遠了——直接把內容顯示在圖片上的標籤，
+        // 不用切去右側面板才看得到現在這個互動點寫了什麼。標籤前面留編號方便對照清單。
+        const preview = h.text ? truncateLabel(h.text, 16) : '（未輸入）';
+        label.textContent = `${i + 1}．${preview}`;
         box.appendChild(label);
 
         if (h.completed){
@@ -2003,6 +2012,8 @@ function renderImageEditor(){
         return;
       }
       section.style.display = 'block';
+      const hotspotIndex = hotspots.findIndex(x=>x.id===selectedId) + 1;
+      document.getElementById('contentHotspotIndex').textContent = `· 互動點 ${hotspotIndex}`;
       const textarea = document.getElementById('hotspotText');
       textarea.value = selected.text;
       const langSelect = document.getElementById('hotspotLang');
@@ -2019,8 +2030,16 @@ function renderImageEditor(){
         Repository.updateHotspotText(selected.id, e.target.value);
         const item = listHost.querySelector(`[data-id="${selected.id}"] span:last-child`);
         if (item) item.textContent = e.target.value || `互動點（尚未完成）`;
-        // 內容變更代表尚未確認完成：立即拿掉畫面上的「已完成」標記，避免顯示過期狀態
+        // 老師回饋：互動點跟文字說明離太遠了——輸入時同步更新圖片上的標籤，不用等切換才看得到
         const boxEl = frame.querySelector(`.hotspot-box.active`);
+        if (boxEl){
+          const labelEl = boxEl.querySelector('.hotspot-label');
+          if (labelEl){
+            const preview = e.target.value ? truncateLabel(e.target.value, 16) : '（未輸入）';
+            labelEl.textContent = `${boxEl.dataset.index}．${preview}`;
+          }
+        }
+        // 內容變更代表尚未確認完成：立即拿掉畫面上的「已完成」標記，避免顯示過期狀態
         if (boxEl && boxEl.classList.contains('completed')){
           boxEl.classList.remove('completed');
           const chk = boxEl.querySelector('.hotspot-check'); if (chk) chk.remove();
