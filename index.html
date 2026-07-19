@@ -384,11 +384,11 @@ const EN_NAMES = {
   HotspotSize:'Hotspot Size', Rename:'Rename', Language:'Language'
 };
 const LOCAL_NAMES = {
-  'zh-TW': { Library:'學習庫', Project:'專案', ImageEditor:'互動設定',
+  'zh-TW': { Library:'學習庫', Project:'圖畫書', ImageEditor:'互動設定',
     ReadingMode:'閱讀模式', Settings:'設定', Welcome:'歡迎',
     EntryMethod:'進入方式', Login:'登入', Image:'圖片',
-    NewProject:'新增專案', NewImage:'新增圖片', Search:'搜尋',
-    SearchProject:'搜尋專案',
+    NewProject:'新增圖畫書', NewImage:'新增圖片', Search:'搜尋',
+    SearchProject:'搜尋圖畫書',
     Back:'返回', Delete:'刪除', Edit:'編輯', Create:'建立',
     RecentlyDeleted:'最近刪除', Done:'完成', FinishSetup:'完成設定',
     HotspotSize:'點擊範圍大小', Rename:'重新命名', Language:'語言' },
@@ -608,7 +608,7 @@ const rawRepository = {
     // 刪除前先把整棵資料樹讀出來存進記憶體，這樣「復原（Undo）」才有東西可以還原——
     // 資料庫本身是硬刪除（外鍵 on delete cascade），復原是靠客戶端記住的資料重新 INSERT。
     const project = await this.getProject(id);
-    if (!project) throw new Error('找不到這個專案，可能已經被刪除');
+    if (!project) throw new Error('找不到這本圖畫書，可能已經被刪除');
     const images = await this.listImages(id);
     const hotspotsByImage = await Promise.all(images.map(im=>this.listHotspots(im.id)));
     const hotspots = hotspotsByImage.flat();
@@ -1202,7 +1202,7 @@ function renderLogin(){
     <div class="centered-screen" style="min-height:100vh;">
       <div class="auth-card">
         <h1>${L('Login')}</h1>
-        <p>登入以開始管理你的教材專案</p>
+        <p>登入以開始管理你的教材圖畫書</p>
         <button type="button" class="btn auth-btn" id="googleBtn">🔵 使用 Google 帳號登入</button>
         <button type="button" class="btn auth-btn" id="appleBtn"> 使用 Apple 帳號登入</button>
         <button type="button" class="btn auth-btn" id="emailBtn">✉️ 使用 Email 登入</button>
@@ -1249,7 +1249,7 @@ function renderLogin(){
   });
 }
 
-/* ---- SCR-004 Library（NAV-08：建立 / 開啟 / 搜尋 / 刪除專案）---- */
+/* ---- SCR-004 Library（NAV-08：建立 / 開啟 / 搜尋 / 刪除圖畫書）---- */
 function renderLibrary(){
   const query = Router.getState('librarySearch', '');
 
@@ -1291,8 +1291,8 @@ function renderLibrary(){
 
     if (list.length === 0){
       body.innerHTML = q
-        ? emptyStateHtml({ icon:'🔍', title:'找不到符合的專案。', desc:'換個關鍵字，或直接建立一個新專案。' })
-        : emptyStateHtml({ icon:'📁', title:'尚未建立專案', desc:'建立第一個專案，開始製作互動教材。' });
+        ? emptyStateHtml({ icon:'🔍', title:'找不到符合的圖畫書。', desc:'換個關鍵字，或直接建立一本新的圖畫書。' })
+        : emptyStateHtml({ icon:'📁', title:'尚未建立圖畫書', desc:'建立第一本圖畫書，開始製作互動教材。' });
       const btnHtml = `<button type="button" class="btn btn-accent" id="emptyNewProjectBtn" style="margin-top:4px;">＋ ${L('NewProject')}</button>`;
       body.querySelector('.empty-state').insertAdjacentHTML('beforeend', btnHtml);
       document.getElementById('emptyNewProjectBtn').addEventListener('click', openNewProjectDialog);
@@ -1326,7 +1326,7 @@ function renderLibrary(){
       const proj = await Repository.getProject(el.dataset.id);
       renameDialog({
         title: `${L('Rename')} ${L('Project')}`,
-        fieldLabel: '專案名稱',
+        fieldLabel: '圖畫書名稱',
         currentName: proj.name,
         onConfirm: async (newName)=>{
           await Repository.renameProject(proj.id, newName);
@@ -1340,14 +1340,14 @@ function renderLibrary(){
       const proj = await Repository.getProject(el.dataset.del);
       openDialog({
         title: `刪除「${escapeHtml(proj.name)}」？`,
-        bodyHtml: `<p style="font-size:13px;color:var(--color-text-soft);">專案內的圖片與互動點也會一併刪除。刪除後可在提示中選擇復原。</p>`,
+        bodyHtml: `<p style="font-size:13px;color:var(--color-text-soft);">圖畫書內的圖片與互動點也會一併刪除。刪除後可在提示中選擇復原。</p>`,
         actions: [
           { label:'取消', className:'btn-ghost', onClick: closeDialog },
-          { label:'刪除專案', className:'btn-danger', onClick: async ()=>{
+          { label:'刪除圖畫書', className:'btn-danger', onClick: async ()=>{
               const bundle = await Repository.deleteProject(proj.id);
               closeDialog();
               renderLibraryBody();
-              toast(`已刪除專案「${escapeHtml(proj.name)}」`, {
+              toast(`已刪除圖畫書「${escapeHtml(proj.name)}」`, {
                 actionLabel:'復原 Undo',
                 onAction: async ()=>{ await Repository.restoreProject(bundle); renderLibraryBody(); }
               });
@@ -1360,7 +1360,7 @@ function renderLibrary(){
   function openNewProjectDialog(){
     openDialog({
       title: `${L('NewProject')}`,
-      bodyHtml: `<div class="field"><label>專案名稱</label><input type="text" id="projNameInput" placeholder="例如：Brown Bear"></div>`,
+      bodyHtml: `<div class="field"><label>圖畫書名稱</label><input type="text" id="projNameInput" placeholder="例如：Brown Bear"></div>`,
       actions: [
         { label:'取消', className:'btn-ghost', onClick: closeDialog },
         { label:L('Create'), className:'btn-primary', onClick: async ()=>{
@@ -1369,7 +1369,7 @@ function renderLibrary(){
             const p = await Repository.createProject(val);
             closeDialog();
             renderLibraryBody();
-            toast(`已新增專案「${escapeHtml(p.name)}」`);
+            toast(`已新增圖畫書「${escapeHtml(p.name)}」`);
           } }
       ]
     });
@@ -1426,7 +1426,7 @@ function renderProject(){
     document.getElementById('renameProjectBtn').addEventListener('click', ()=>{
       renameDialog({
         title: `${L('Rename')} ${L('Project')}`,
-        fieldLabel: '專案名稱',
+        fieldLabel: '圖畫書名稱',
         currentName: project.name,
         onConfirm: async (newName)=>{
           await Repository.renameProject(project.id, newName);
@@ -1745,8 +1745,11 @@ function renderImageEditor(){
       viewport.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
       zoomPct.textContent = Math.round(scale * 100) + '%';
       frame.querySelectorAll('.hotspot-box').forEach(styleHotspotChrome);
-      // NAV-13 / UX-15：記住縮放比例與畫面位置（session 內；跨裝置/跨次登入的持久化留待 Storage Specification）
-      Router.setState(viewKey, { scale, tx, ty });
+      // NAV-13 / UX-15：記住縮放比例與畫面位置（session 內；跨裝置/跨次登入的持久化留待 Storage Specification）。
+      // 同時記住當時畫布的實際尺寸，避免在完全不同大小的裝置（例如手機切換到桌機）
+      // 上直接套用不合比例的縮放/位移，導致圖片跑到看不到的地方（曾經發生過的真實問題）。
+      const wrapRectNow = canvasWrap.getBoundingClientRect();
+      Router.setState(viewKey, { scale, tx, ty, wrapW: wrapRectNow.width, wrapH: wrapRectNow.height });
     }
 
     function setFit(){ scale = clamp(fitScale(), MIN_SCALE, MAX_SCALE); centerAt(scale); applyTransform(); }
@@ -1773,7 +1776,13 @@ function renderImageEditor(){
       imgEl.style.width = naturalW + 'px';
       imgEl.style.height = naturalH + 'px';
       const saved = Router.getState(viewKey, null);
-      if (saved){ scale = saved.scale; tx = saved.tx; ty = saved.ty; applyTransform(); }
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      // 畫布尺寸跟上次儲存時差太多（例如換了裝置：手機 ↔ 桌機），視為不同的檢視環境，
+      // 捨棄舊的縮放/位移、直接重新計算 Fit，而不是套用一個跟現在畫面完全不成比例的舊狀態。
+      const sizeChanged = !saved || !saved.wrapW ||
+        Math.abs(saved.wrapW - wrapRect.width) / wrapRect.width > 0.2 ||
+        Math.abs(saved.wrapH - wrapRect.height) / wrapRect.height > 0.2;
+      if (saved && !sizeChanged){ scale = saved.scale; tx = saved.tx; ty = saved.ty; applyTransform(); }
       else { setFit(); }
       refresh();
     }
@@ -2258,7 +2267,9 @@ function renderReading(){
     function applyTransform(){
       viewport.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
       zoomPct.textContent = Math.round(scale * 100) + '%';
-      Router.setState(viewKey, { scale, tx, ty }); // UX-15：記住縮放比例與畫面位置
+      // UX-15：記住縮放比例與畫面位置；同時記住畫布尺寸，避免跨裝置（手機↔桌機）套用不成比例的舊狀態
+      const rectNow = stage.getBoundingClientRect();
+      Router.setState(viewKey, { scale, tx, ty, wrapW: rectNow.width, wrapH: rectNow.height });
     }
     function setFit(){ scale = clamp(fitScale(), MIN_SCALE, MAX_SCALE); centerAt(scale); applyTransform(); }
     function setActual(){ scale = 1; centerAt(scale); applyTransform(); }
@@ -2389,7 +2400,12 @@ function renderReading(){
       buildRegions();
       applySplit();
       const saved = Router.getState(viewKey, null);
-      if (saved){ scale = saved.scale; tx = saved.tx; ty = saved.ty; applyTransform(); }
+      const rect = stage.getBoundingClientRect();
+      // 畫布尺寸跟上次儲存時差太多（例如換了裝置），捨棄舊狀態、重新計算 Fit
+      const sizeChanged = !saved || !saved.wrapW ||
+        Math.abs(saved.wrapW - rect.width) / rect.width > 0.2 ||
+        Math.abs(saved.wrapH - rect.height) / rect.height > 0.2;
+      if (saved && !sizeChanged){ scale = saved.scale; tx = saved.tx; ty = saved.ty; applyTransform(); }
       else { setFit(); }
     }
     if (img.complete && img.naturalWidth){ initView(); }
