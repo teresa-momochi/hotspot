@@ -1791,27 +1791,69 @@ function renderImageEditor(){
       zoomTo(scale * factor, e.clientX - wrapRect.left, e.clientY - wrapRect.top);
     }, { passive:false });
 
-    // ---- 拖曳平移畫面（Interaction Specification IP-01：拖曳優先）----
+    // ---- 拖曳平移畫面（Interaction Specification IP-01：拖曳優先）／雙指縮放（Pinch-to-zoom）----
     // 註：Hotspot 框體／控制點自己的 pointerdown 會 stopPropagation，
-    // 所以這裡收到事件時，代表使用者是在空白處按下，一律視為平移。
+    // 所以這裡收到事件時，代表使用者是在空白處按下，一律視為平移或縮放。
+    // 觸控大螢幕／平板優先：兩指同時放上去時，從單指平移自動切換成雙指縮放，
+    // 放開一指後回到用剩下那指平移，中間不會有跳動感。
+    const activePointers = new Map(); // pointerId -> {x, y}
     let panning = false, panOccurred = false, startX=0, startY=0, startTx=0, startTy=0;
+    let pinching = false, pinchStartDist = 0, pinchStartScale = 1;
+    function pointerList(){ return Array.from(activePointers.values()); }
+
     canvasWrap.addEventListener('pointerdown', (e)=>{
       if (e.target.closest('.zoom-bar')) return;
-      panning = true; panOccurred = false;
-      startX = e.clientX; startY = e.clientY; startTx = tx; startTy = ty;
       canvasWrap.setPointerCapture(e.pointerId);
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 2){
+        panning = false;
+        pinching = true;
+        const [p1, p2] = pointerList();
+        pinchStartDist = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+        pinchStartScale = scale;
+      } else if (activePointers.size === 1){
+        panning = true; panOccurred = false;
+        startX = e.clientX; startY = e.clientY; startTx = tx; startTy = ty;
+      }
     });
     canvasWrap.addEventListener('pointermove', (e)=>{
-      if (!panning) return;
-      const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panOccurred = true;
-      tx = startTx + dx; ty = startTy + dy;
-      applyTransform();
-      canvasWrap.classList.add('panning');
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pinching && activePointers.size === 2){
+        const [p1, p2] = pointerList();
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+        const wrapRect = canvasWrap.getBoundingClientRect();
+        const midX = (p1.x + p2.x) / 2 - wrapRect.left;
+        const midY = (p1.y + p2.y) / 2 - wrapRect.top;
+        panOccurred = true; // 雙指縮放也算「拖曳」，放開時不應觸發新增互動點
+        zoomTo(pinchStartScale * (dist / pinchStartDist), midX, midY);
+        return;
+      }
+      if (panning && activePointers.size === 1){
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panOccurred = true;
+        tx = startTx + dx; ty = startTy + dy;
+        applyTransform();
+        canvasWrap.classList.add('panning');
+      }
     });
-    function endPan(){ panning = false; canvasWrap.classList.remove('panning'); }
-    canvasWrap.addEventListener('pointerup', endPan);
-    canvasWrap.addEventListener('pointercancel', endPan);
+    function endPointer(e){
+      activePointers.delete(e.pointerId);
+      if (activePointers.size < 2) pinching = false;
+      if (activePointers.size === 1){
+        // 還剩一指：改回平移，用目前位置當新起點，避免放開瞬間跳動
+        const [p] = pointerList();
+        panning = true; panOccurred = false;
+        startX = p.x; startY = p.y; startTx = tx; startTy = ty;
+      } else if (activePointers.size === 0){
+        panning = false;
+        canvasWrap.classList.remove('panning');
+      }
+    }
+    canvasWrap.addEventListener('pointerup', endPointer);
+    canvasWrap.addEventListener('pointercancel', endPointer);
 
     canvasWrap.addEventListener('click', async (e)=>{
       if (panOccurred){ panOccurred = false; return; } // IP-01：判定為拖曳時不新增互動點
@@ -2241,27 +2283,68 @@ function renderReading(){
       zoomTo(scale * factor, e.clientX - rect.left, e.clientY - rect.top);
     }, { passive:false });
 
-    // 放大超出可視範圍時，可拖曳（觸控／滑鼠皆可，Pointer Events 統一處理）Pan 調整位置
+    // 放大超出可視範圍時，可拖曳（觸控／滑鼠皆可，Pointer Events 統一處理）Pan 調整位置。
+    // 觸控大螢幕／平板優先：兩指同時放上去時自動切換成雙指縮放（Pinch-to-zoom），
+    // 放開一指後回到用剩下那指平移，中間不會有跳動感。
+    const activePointers = new Map(); // pointerId -> {x, y}
     let panning = false, panOccurred = false, panStartX=0, panStartY=0, panStartTx=0, panStartTy=0;
+    let pinching = false, pinchStartDist = 0, pinchStartScale = 1;
+    function pointerList(){ return Array.from(activePointers.values()); }
+
     stage.addEventListener('pointerdown', (e)=>{
       if (e.target.closest('.zoom-bar') || e.target.closest('.reading-hotspot')) return;
-      panning = true; panOccurred = false;
-      panStartX = e.clientX; panStartY = e.clientY; panStartTx = tx; panStartTy = ty;
       stage.setPointerCapture(e.pointerId);
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 2){
+        panning = false;
+        pinching = true;
+        const [p1, p2] = pointerList();
+        pinchStartDist = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+        pinchStartScale = scale;
+      } else if (activePointers.size === 1){
+        panning = true; panOccurred = false;
+        panStartX = e.clientX; panStartY = e.clientY; panStartTx = tx; panStartTy = ty;
+      }
     });
     stage.addEventListener('pointermove', (e)=>{
-      if (!panning) return;
-      const dx = e.clientX - panStartX, dy = e.clientY - panStartY;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panOccurred = true;
-      tx = panStartTx + dx; ty = panStartTy + dy;
-      applyTransform();
-      stage.classList.add('panning');
-    });
-    function endPan(){ panning = false; stage.classList.remove('panning'); }
-    stage.addEventListener('pointerup', endPan);
-    stage.addEventListener('pointercancel', endPan);
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // RM-03：點擊空白處（非拖曳、非 Hotspot），Header 自頂端滑出
+      if (pinching && activePointers.size === 2){
+        const [p1, p2] = pointerList();
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+        const rect = stage.getBoundingClientRect();
+        const midX = (p1.x + p2.x) / 2 - rect.left;
+        const midY = (p1.y + p2.y) / 2 - rect.top;
+        panOccurred = true; // 雙指縮放不應被視為「點空白處」而觸發 Header 顯示
+        zoomTo(pinchStartScale * (dist / pinchStartDist), midX, midY);
+        return;
+      }
+      if (panning && activePointers.size === 1){
+        const dx = e.clientX - panStartX, dy = e.clientY - panStartY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panOccurred = true;
+        tx = panStartTx + dx; ty = panStartTy + dy;
+        applyTransform();
+        stage.classList.add('panning');
+      }
+    });
+    function endPointer(e){
+      activePointers.delete(e.pointerId);
+      if (activePointers.size < 2) pinching = false;
+      if (activePointers.size === 1){
+        const [p] = pointerList();
+        panning = true; panOccurred = false;
+        panStartX = p.x; panStartY = p.y; panStartTx = tx; panStartTy = ty;
+      } else if (activePointers.size === 0){
+        panning = false;
+        stage.classList.remove('panning');
+      }
+    }
+    stage.addEventListener('pointerup', endPointer);
+    stage.addEventListener('pointercancel', endPointer);
+
+    // RM-03：點擊空白處（非拖曳、非 Hotspot、非雙指縮放），Header 自頂端滑出
     stage.addEventListener('click', (e)=>{
       if (panOccurred){ panOccurred = false; return; }
       if (e.target.closest('.reading-hotspot') || e.target.closest('.zoom-bar')) return;
