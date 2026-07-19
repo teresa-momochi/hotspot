@@ -1703,6 +1703,14 @@ function renderImageEditor(){
     const MIN_SCALE = 0.08, MAX_SCALE = 8;
     let suppressNextClick = false; // 剛完成一次 Hotspot 拖曳/縮放時，忽略隨後那次 click，避免誤觸新增
 
+    // 編輯器語言記憶（Language Persistence）：老師通常整頁都在輸入同一種語言，
+    // 記住「目前工作語言」，新增的 Hotspot 直接沿用，不用每個都重新選一次。
+    // 注意：這只影響「新增」時的預設值——切換到既有 Hotspot 一律顯示它自己真正
+    // 存的語言，不會被工作語言覆蓋，避免不小心把混合語言教材裡刻意設定成別種
+    // 語言的 Hotspot 悄悄改掉。用 Router.setState 記在 session 裡，換圖片、
+    // 甚至換專案都會沿用同一個工作語言，符合「一頁通常只用一種語言」的編輯習慣。
+    let workingLanguage = Router.getState('editorWorkingLanguage', 'en-US');
+
     function fitScale(){
       const wrapRect = canvasWrap.getBoundingClientRect();
       if (!naturalW || !naturalH) return 1;
@@ -1812,6 +1820,11 @@ function renderImageEditor(){
       if (x < 0 || x > 100 || y < 0 || y > 100) return;
       commitPendingEdit();
       const h = await Repository.addHotspot(image.id, x, y);
+      // 語言記憶：新增的 Hotspot 直接沿用目前工作語言，不用每個都重新選一次
+      if (workingLanguage !== 'en-US'){
+        await Repository.updateHotspotLanguage(h.id, workingLanguage);
+        h.language = workingLanguage;
+      }
       Router.setState(selectedKey, h.id);
       savedToast();
       refresh();
@@ -2022,9 +2035,12 @@ function renderImageEditor(){
       textarea.onblur = savedToast;
 
       // CR-009：每個 Hotspot 各自記住自己的發音語言，切換介面語言不會影響已設定的教材內容
+      // 語言記憶：手動改語言時，同步更新「目前工作語言」，下一個新增的 Hotspot 會沿用
       langSelect.onchange = (e)=>{
         selected.language = e.target.value;
         Repository.updateHotspotLanguage(selected.id, e.target.value);
+        workingLanguage = e.target.value;
+        Router.setState('editorWorkingLanguage', workingLanguage);
         savedToast();
       };
 
