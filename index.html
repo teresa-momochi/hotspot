@@ -429,8 +429,8 @@ function L(key){
    anon public key 是設計成可以放在前端程式碼裡的（不是密鑰），安全性由
    Row Level Security（見 supabase_schema.sql）負責，不是靠隱藏這個 key。
    -------------------------------------------------------------------- */
-const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co'; // TODO：換成你的 Project URL
-const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY'; // TODO：換成你的 anon public key
+const SUPABASE_URL = 'https://pfadzaywqhvvoriizkiv.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_q1kt9MSFoaCxuaFhQvLK7Q_HSbChDSO';
 const STORAGE_BUCKET = 'hotspot-images';
 
 const supabaseClient = (SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabase)
@@ -440,8 +440,13 @@ const supabaseClient = (SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabas
     });
 
 if (!supabaseClient){
-  console.warn('[Supabase] 尚未設定 SUPABASE_URL / SUPABASE_ANON_KEY，App 無法連線到後端。' +
-    '請參考 supabase_schema.sql 最後的檢查清單完成設定。');
+  if (SUPABASE_URL.includes('YOUR-PROJECT')){
+    console.warn('[Supabase] 尚未設定 SUPABASE_URL / SUPABASE_ANON_KEY，App 無法連線到後端。' +
+      '請參考 supabase_schema.sql 最後的檢查清單完成設定。');
+  } else if (!window.supabase){
+    console.warn('[Supabase] 已填入專案設定，但 @supabase/supabase-js 函式庫沒有載入成功' +
+      '（CDN 被擋、離線、或 script 標籤被移除），App 無法連線到後端。');
+  }
 }
 
 let uidCounter = 1;
@@ -788,7 +793,11 @@ const REPOSITORY_SYNC_METHODS = new Set(['isConfigured', 'onAuthStateChange']); 
 
 function describeRepositoryError(err){
   const msg = (err && err.message) || String(err);
-  if (!rawRepository.isConfigured()) return '尚未連接後端，請確認 Supabase 專案設定';
+  if (!rawRepository.isConfigured()){
+    return supabaseClient === null && !SUPABASE_URL.includes('YOUR-PROJECT') && !window.supabase
+      ? '無法載入 Supabase 函式庫，請檢查網路連線或重新整理頁面'
+      : '尚未連接後端，請確認 Supabase 專案設定';
+  }
   if (/Failed to fetch|NetworkError|network/i.test(msg)) return '網路連線失敗，請檢查網路後再試一次';
   if (/row-level security|permission denied/i.test(msg)) return '沒有權限執行這個操作';
   if (/JWT|not authenticated|refresh_token|session/i.test(msg)) return '登入已失效，請重新登入';
