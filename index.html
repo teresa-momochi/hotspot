@@ -653,15 +653,20 @@ const rawRepository = {
   },
   // file：瀏覽器 File 物件（來自 <input type=file>）。會先上傳到 Storage，
   // 拿到公開網址後才寫進資料庫的 url 欄位。
+  // 修正（Live Validation 發現）：Storage 路徑不需要跟資料庫的 id 綁在一起——
+  // 之前用前端產生的 uid('img')（例如 "img_1_4cev"）當路徑名，又把同一個值
+  // 塞進 hotspot_images.id，但那個欄位是 uuid，導致 "invalid input syntax for
+  // type uuid" 錯誤。改成用 crypto.randomUUID() 產生純粹的路徑用亂數字串，
+  // 真正的 id 交給資料庫的 gen_random_uuid() 產生，兩者本來就不需要相同。
   // TODO(Media Specification)：圖片壓縮、格式轉換、大小限制等待該規格定案後再處理，
   // 目前是原始檔案直接上傳。
   async addImage(projectId, name, file){
     const { data:{ session } } = await supabaseClient.auth.getSession();
     if (!session) throw new Error('addImage：必須先登入');
     const order = (await this.listImages(projectId)).length;
-    const imageId = uid('img');
     const ext = (file.name.match(/\.[a-zA-Z0-9]+$/) || [''])[0];
-    const path = `${session.user.id}/${projectId}/${imageId}${ext}`;
+    const pathToken = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : uid('img');
+    const path = `${session.user.id}/${projectId}/${pathToken}${ext}`;
 
     const { error: uploadError } = await supabaseClient.storage.from(STORAGE_BUCKET).upload(path, file, {
       cacheControl: '3600', upsert: false
@@ -670,7 +675,7 @@ const rawRepository = {
     const { data: pub } = supabaseClient.storage.from(STORAGE_BUCKET).getPublicUrl(path);
 
     const { data, error } = await supabaseClient.from('hotspot_images')
-      .insert({ id: imageId, project_id: projectId, name, url: pub.publicUrl, order_index: order })
+      .insert({ project_id: projectId, name, url: pub.publicUrl, order_index: order }) // 不指定 id，讓資料庫產生合法 uuid
       .select().single();
     if (error) throw error;
     await this.touchProject(projectId);
