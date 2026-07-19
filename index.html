@@ -347,6 +347,7 @@
 <div id="app"></div>
 <div id="toast-host"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 /* =========================================================================
    Interactive Image App — MVP 原型（Prototype for Validation）
@@ -423,233 +424,408 @@ function L(key){
 }
 
 /* ---------------------------------------------------------------------
-   2. Store — 記憶體資料層（概念模型：User → Project → Image → Hotspot）
-   本層只是「未來 Database/API 應提供哪些操作」的介面占位。
-   TODO(Database Specification): 定義實際資料表與型別後，替換內部實作。
-   TODO(API Specification): 定義實際請求格式後，把這些方法改為非同步呼叫。
-   TODO(Storage Specification): 定義使用者 Session／裝置狀態保存方式。
+   2. Supabase 連線設定
+   ⚠ 請把下面兩個值換成你自己 Supabase 專案的（Dashboard → Settings → API）。
+   anon public key 是設計成可以放在前端程式碼裡的（不是密鑰），安全性由
+   Row Level Security（見 supabase_schema.sql）負責，不是靠隱藏這個 key。
    -------------------------------------------------------------------- */
+const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co'; // TODO：換成你的 Project URL
+const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY'; // TODO：換成你的 anon public key
+const STORAGE_BUCKET = 'hotspot-images';
+
+const supabaseClient = (SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabase)
+  ? null
+  : window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
+    });
+
+if (!supabaseClient){
+  console.warn('[Supabase] 尚未設定 SUPABASE_URL / SUPABASE_ANON_KEY，App 無法連線到後端。' +
+    '請參考 supabase_schema.sql 最後的檢查清單完成設定。');
+}
+
 let uidCounter = 1;
 function uid(prefix){ return `${prefix}_${(uidCounter++).toString(36)}_${Date.now().toString(36).slice(-4)}`; }
 
-/*
- * LocalState — 目前 MVP 唯一的實作方式：單一分頁、記憶體內、同步運算。
- * 這是「原型驗證專用」的實作細節，重新整理即消失，也不支援多人同時使用。
- * 正式多人雲端版本會用 Database/API/Storage/Authentication Specification
- * 定義出的後端服務取代這個物件 —— Screens 完全不會知道底下換了實作，
- * 因為它們只透過下面的 Repository 呼叫（一律回傳 Promise、以 userId 隔離資料）。
- */
-const LocalState = {
-  currentUser: null, // { id, name, email, provider, plan, storageUsedMB, storageLimitMB }
-  language: 'zh-TW',
-  entryMethodConfigured: false,
-  projects: [], // 每筆都有 ownerId，對應目前登入使用者
-  images: [],
-  hotspots: []
-};
+// 把資料庫的 snake_case／ISO 時間字串，轉成畫面原本就在用的 camelCase／毫秒數字，
+// 這樣 Screens 完全不用因為換了後端而改任何程式碼——這正是 Repository 這一層存在的目的。
+function rowToProject(r){
+  return { id:r.id, ownerId:r.owner_id, name:r.name,
+    createdAt: new Date(r.created_at).getTime(), updatedAt: new Date(r.updated_at).getTime() };
+}
+function rowToImage(r){
+  return { id:r.id, projectId:r.project_id, name:r.name, url:r.url, order:r.order_index };
+}
+function rowToHotspot(r){
+  return { id:r.id, imageId:r.image_id, x:Number(r.x), y:Number(r.y),
+    width:Number(r.width), height:Number(r.height), text:r.text,
+    language:r.language, completed:r.completed, order:r.order_index };
+}
 
 /*
  * Repository — Screens 唯一允許呼叫的資料層介面（Data Specification 概念模型
  * User → Project → Image → Hotspot → Content 的操作入口）。
  *
- * 設計成 async / Promise-based，是刻意的：即使目前底層是同步的記憶體運算，
- * 呼叫方式已經跟「未來呼叫真正 API」一致，換掉 LocalState 不需要更動任何畫面程式碼。
+ * 已接上真正的 Supabase：Auth（Email Magic Link／Google／Apple）、
+ * Database（Postgres + Row Level Security）、Storage（教材圖片）。
+ * 方法簽章維持跟原型階段一致，Screens 不需要因為這次串接而改動。
  *
- * ── Authentication / Session 架構（本次 CR 定義，尚未接上真正的 Supabase）──
- * 產品定位是「教材製作工具」不是「教材分享平台」：每位使用者只能存取自己的
- * Project，不提供教材交換或公開分享。因此資料隔離的原則是：
- *   1. 每個 Project 建立時都綁定 ownerId（=目前登入使用者的 id）。
- *   2. Image／Hotspot 不需要各自存 ownerId——擁有權透過 Project 繼承
- *      （User owns Project owns Image owns Hotspot，與 Data Specification 一致），
- *      只要 Project 層做好隔離，底下的 Image／Hotspot 自然也只有擁有者能看到。
- *   3. listProjects／getProject 等讀取方法，一律先過濾「ownerId === 目前使用者」，
- *      這裡先用記憶體陣列 filter 模擬，未來接 Supabase 時，換成 Row Level
- *      Security（RLS）比對 auth.uid()，呼叫端（Screens）完全不需要更動。
+ * ── 產品原則 ──「教材製作工具」不是「教材分享平台」：每位使用者只能存取
+ * 自己的 Project；資料隔離全部交給 Supabase 的 Row Level Security 判斷
+ * auth.uid()，不是前端自己過濾（前端過濾能被繞過，RLS 是資料庫層級的保護）。
  *
- * App 啟動流程（Router 已依此實作，見檔案最後的啟動程式碼）：
- *   Launch App → checkSession() → 有效 → 直接進 Library
- *                              → 無效 → Welcome → Entry Method → Login
- * 目前 checkSession() 一定回傳「無 session」，因為 LocalState 本來就不跨頁面存活
- * （這是刻意的 MVP 限制，見檔案開頭說明）；等 Storage/Authentication Specification
- * 定案、接上真正會持久化的 Session（例如 Supabase 的 JWT），這個方法內部
- * 換成「檢查真正的 Session」即可，Router 端的流程判斷完全不需要重寫。
- *
- * TODO(Database Specification)：定義資料表/型別後，內部改為呼叫真正的資料庫。
- * TODO(API Specification)：定義請求格式後，內部改為 fetch()／SDK 呼叫。
- * TODO(Authentication Specification)：真正的登入驗證、Session 簽發與到期、
- *   Email／Google／Apple 三種登入方式的實際串接，都待該規格定案後實作；
- *   目前 login() 只是把假的使用者資料放進記憶體。
- * TODO(Storage Specification)：圖片/音訊等媒體來源與網址、儲存空間用量的
- *   真實計算方式，待該規格定案後定義；目前 storageUsedMB／storageLimitMB
- *   是展示用的固定假資料。
+ * TODO(Media Specification)：圖片以外的媒體（例如自訂錄音／音檔上傳）待該
+ *   規格定案後再設計，目前只有圖片走 Storage，發音仍是瀏覽器內建 TTS。
  */
-const Repository = {
+const rawRepository = {
 
   // ---- Auth / Session ----
+  // Google／Apple 走 OAuth（整頁導到對方登入頁，登入完成後導回本頁）；
+  // Email 走 Magic Link（寄信，使用者點信裡的連結才會完成登入）——
+  // 這兩種都不會「呼叫完就馬上登入」，所以這裡回傳 null，真正的登入結果
+  // 由頁面載入時的 checkSession() 偵測（見檔案最後的啟動流程）。
   async login(provider, label){
-    // TODO(Authentication Specification)：Email／Google／Apple 三種方式目前都只是
-    // 佔位，尚未串接真正的 Supabase Auth；plan／storage 也是展示用假資料。
-    LocalState.currentUser = {
-      id: uid('user'),
-      name: label || '老師',
-      email: provider === 'email' ? label : `${(label || 'teacher').toLowerCase().replace(/\s+/g,'.')}@example.com`,
-      provider,
-      plan: 'Free',
-      storageUsedMB: 42,
-      storageLimitMB: 500
+    if (!supabaseClient) throw new Error('尚未設定 Supabase 連線（SUPABASE_URL / SUPABASE_ANON_KEY）');
+    if (provider === 'google' || provider === 'apple'){
+      const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: window.location.href }
+      });
+      if (error) throw error;
+      return null; // 瀏覽器即將導頁離開，這裡不會真的用到回傳值
+    }
+    if (provider === 'email'){
+      const { error } = await supabaseClient.auth.signInWithOtp({
+        email: label,
+        options: { emailRedirectTo: window.location.href }
+      });
+      if (error) throw error;
+      return null; // 使用者需要去信箱點連結，回來才會有 session
+    }
+    throw new Error(`不支援的登入方式：${provider}`);
+  },
+  async logout(){
+    if (!supabaseClient) return;
+    await supabaseClient.auth.signOut();
+  },
+  // CR-0001 Task 6：App 殼層（Router／render 守衛）需要知道登入狀態何時改變，
+  // 但不該直接碰 supabaseClient——這個方法把 Supabase 的 onAuthStateChange
+  // 包一層，UI／App 殼層只透過 Repository 訂閱，維持「UI → Repository →
+  // Supabase」的單一資料流方向。
+  onAuthStateChange(callback){
+    if (!supabaseClient) return;
+    supabaseClient.auth.onAuthStateChange((event, session)=> callback(!!session));
+  },
+  // 是否已設定好 Supabase 連線；畫面用來顯示「尚未連接後端」之類的提示，
+  // 不應該自己去檢查 supabaseClient 變數存不存在。
+  isConfigured(){ return !!supabaseClient; },
+  async getCurrentUser(){
+    if (!supabaseClient) return null;
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    if (!session) return null;
+    const u = session.user;
+    const usage = await this.getStorageUsage();
+    return {
+      id: u.id,
+      name: u.user_metadata?.full_name || u.user_metadata?.name || (u.email ? u.email.split('@')[0] : '老師'),
+      email: u.email || '',
+      provider: u.app_metadata?.provider || 'email',
+      plan: 'Free', // TODO：訂閱方案功能待後續規劃，目前固定 Free
+      storageUsedMB: usage ? usage.usedMB : 0,
+      storageLimitMB: usage ? usage.limitMB : 500
     };
-    return LocalState.currentUser;
   },
-  async logout(){ LocalState.currentUser = null; },
-  async getCurrentUser(){ return LocalState.currentUser; },
-  // App 啟動時呼叫；MVP 階段一定回傳 null（無持久化 Session），見上方註解
-  async checkSession(){ return null; },
+  // App 啟動時呼叫：Launch → checkSession() → 有效進 Library，無效走 Welcome。
+  // OAuth／Magic Link 導回本頁後，Supabase JS 會自動從網址解析出 session，
+  // 所以「剛登入完成」跟「原本就有 session」都會在這裡被正確偵測到。
+  async checkSession(){
+    if (!supabaseClient) return null;
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    if (!session) return null;
+    const user = await this.getCurrentUser();
+    return user ? { user } : null;
+  },
   async getStorageUsage(){
-    if (!LocalState.currentUser) return null;
-    const { storageUsedMB, storageLimitMB } = LocalState.currentUser;
-    return { usedMB: storageUsedMB, limitMB: storageLimitMB };
+    if (!supabaseClient) return null;
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    if (!session) return null;
+    const { data, error } = await supabaseClient.storage.from(STORAGE_BUCKET).list(session.user.id, { limit: 1000 });
+    if (error || !data){
+      console.warn('[getStorageUsage] 無法讀取儲存空間用量，顯示為 0（不影響其他功能）', error);
+      return { usedMB: 0, limitMB: 500 };
+    }
+    const totalBytes = data.reduce((sum,f)=> sum + (f.metadata?.size || 0), 0);
+    return { usedMB: Math.round(totalBytes / 1024 / 1024 * 10) / 10, limitMB: 500 };
   },
-  async setLanguage(lang){ LocalState.language = lang; },
+  async setLanguage(lang){ LocalState.language = lang; }, // 介面語言是本機／裝置偏好，不需要進資料庫
   async getLanguage(){ return LocalState.language; },
   async setEntryMethodConfigured(v){ LocalState.entryMethodConfigured = v; },
 
-  // ---- Project（擁有者：User，以 ownerId 隔離——教材製作工具原則：
-  //      每位使用者只能存取自己的 Project，不提供跨帳號的教材交換或公開分享）----
+  // ---- Project（擁有者：User；資料隔離由 Supabase RLS 負責，見 supabase_schema.sql）----
   async listProjects(query){
-    const ownerId = LocalState.currentUser?.id;
-    if (!ownerId) return [];
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    if (!session) return [];
+    let req = supabaseClient.from('hotspot_projects').select('*').eq('owner_id', session.user.id);
+    const { data, error } = await req.order('updated_at', { ascending:false });
+    if (error) throw error; // CR-0001 Task 7：不能把「查詢失敗」跟「真的沒有資料」混為一談
+    let list = data.map(rowToProject);
     const q = (query||'').trim().toLowerCase();
-    return LocalState.projects
-      .filter(p => p.ownerId === ownerId)
-      .filter(p => !q || p.name.toLowerCase().includes(q))
-      .sort((a,b)=> b.updatedAt - a.updatedAt);
+    if (q) list = list.filter(p=>p.name.toLowerCase().includes(q));
+    return list;
   },
   async getProject(id){
-    const ownerId = LocalState.currentUser?.id;
-    const p = LocalState.projects.find(p=>p.id===id) || null;
-    return (p && p.ownerId === ownerId) ? p : null; // 不是自己的 Project 一律視為不存在
+    const { data, error } = await supabaseClient.from('hotspot_projects').select('*').eq('id', id).maybeSingle();
+    if (error) throw error; // maybeSingle() 對「找不到」回傳 data:null,error:null，不會誤觸這裡
+    return data ? rowToProject(data) : null;
   },
   async createProject(name){
-    const ownerId = LocalState.currentUser?.id;
-    if (!ownerId) throw new Error('createProject：必須先登入才能建立 Project');
-    const p = { id: uid('proj'), ownerId, name: name.trim(), createdAt: Date.now(), updatedAt: Date.now() };
-    LocalState.projects.unshift(p);
-    return p;
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    if (!session) throw new Error('createProject：必須先登入才能建立 Project');
+    const { data, error } = await supabaseClient.from('hotspot_projects')
+      .insert({ owner_id: session.user.id, name: name.trim() })
+      .select().single();
+    if (error) throw error;
+    return rowToProject(data);
   },
   async touchProject(id){
-    const p = LocalState.projects.find(x=>x.id===id);
-    if (p) p.updatedAt = Date.now();
+    const { error } = await supabaseClient.from('hotspot_projects').update({ updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
   },
   async renameProject(id, name){
-    const p = LocalState.projects.find(x=>x.id===id);
-    if (p){ p.name = name.trim(); p.updatedAt = Date.now(); }
-    return p;
+    const { data, error } = await supabaseClient.from('hotspot_projects')
+      .update({ name: name.trim(), updated_at: new Date().toISOString() })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return rowToProject(data);
   },
   async deleteProject(id){
-    const ownerId = LocalState.currentUser?.id;
-    const idx = LocalState.projects.findIndex(p=>p.id===id && p.ownerId===ownerId);
-    if (idx === -1) return null;
-    const [removed] = LocalState.projects.splice(idx,1);
-    // 級聯移除底下的 Image / Hotspot（概念上 Project 擁有 Image）
-    const removedImages = LocalState.images.filter(im=>im.projectId===id);
-    LocalState.images = LocalState.images.filter(im=>im.projectId!==id);
-    const removedImageIds = new Set(removedImages.map(im=>im.id));
-    const removedHotspots = LocalState.hotspots.filter(h=>removedImageIds.has(h.imageId));
-    LocalState.hotspots = LocalState.hotspots.filter(h=>!removedImageIds.has(h.imageId));
-    return { project: removed, images: removedImages, hotspots: removedHotspots, index: idx };
+    // 刪除前先把整棵資料樹讀出來存進記憶體，這樣「復原（Undo）」才有東西可以還原——
+    // 資料庫本身是硬刪除（外鍵 on delete cascade），復原是靠客戶端記住的資料重新 INSERT。
+    const project = await this.getProject(id);
+    if (!project) throw new Error('找不到這個專案，可能已經被刪除');
+    const images = await this.listImages(id);
+    const hotspotsByImage = await Promise.all(images.map(im=>this.listHotspots(im.id)));
+    const hotspots = hotspotsByImage.flat();
+    const { error } = await supabaseClient.from('hotspot_projects').delete().eq('id', id);
+    if (error) throw error;
+    return { project, images, hotspots };
   },
   async restoreProject(bundle){
     if (!bundle) return;
-    LocalState.projects.splice(bundle.index, 0, bundle.project);
-    LocalState.images.push(...bundle.images);
-    LocalState.hotspots.push(...bundle.hotspots);
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    const { error: pErr } = await supabaseClient.from('hotspot_projects').insert({
+      id: bundle.project.id, owner_id: session.user.id, name: bundle.project.name,
+      created_at: new Date(bundle.project.createdAt).toISOString(),
+      updated_at: new Date(bundle.project.updatedAt).toISOString()
+    });
+    if (pErr) throw pErr;
+    for (const im of bundle.images){
+      const { error } = await supabaseClient.from('hotspot_images').insert({
+        id: im.id, project_id: im.projectId, name: im.name, url: im.url, order_index: im.order
+      });
+      if (error) throw error;
+    }
+    for (const h of bundle.hotspots){
+      const { error } = await supabaseClient.from('hotspot_hotspots').insert({
+        id: h.id, image_id: h.imageId, x: h.x, y: h.y, width: h.width, height: h.height,
+        text: h.text, language: h.language, completed: h.completed, order_index: h.order
+      });
+      if (error) throw error;
+    }
   },
 
-  // ---- Image（擁有者：Project）----
+  // ---- Image（擁有者：Project；圖片檔案存在 Supabase Storage）----
   async listImages(projectId){
-    return LocalState.images.filter(im=>im.projectId===projectId).sort((a,b)=>a.order-b.order);
+    const { data, error } = await supabaseClient.from('hotspot_images')
+      .select('*').eq('project_id', projectId).order('order_index', { ascending:true });
+    if (error) throw error;
+    return data.map(rowToImage);
   },
-  async getImage(id){ return LocalState.images.find(im=>im.id===id) || null; },
-  async addImage(projectId, name, url){
+  async getImage(id){
+    const { data, error } = await supabaseClient.from('hotspot_images').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToImage(data) : null;
+  },
+  // file：瀏覽器 File 物件（來自 <input type=file>）。會先上傳到 Storage，
+  // 拿到公開網址後才寫進資料庫的 url 欄位。
+  // TODO(Media Specification)：圖片壓縮、格式轉換、大小限制等待該規格定案後再處理，
+  // 目前是原始檔案直接上傳。
+  async addImage(projectId, name, file){
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    if (!session) throw new Error('addImage：必須先登入');
     const order = (await this.listImages(projectId)).length;
-    const img = { id: uid('img'), projectId, name, url, order };
-    LocalState.images.push(img);
+    const imageId = uid('img');
+    const ext = (file.name.match(/\.[a-zA-Z0-9]+$/) || [''])[0];
+    const path = `${session.user.id}/${projectId}/${imageId}${ext}`;
+
+    const { error: uploadError } = await supabaseClient.storage.from(STORAGE_BUCKET).upload(path, file, {
+      cacheControl: '3600', upsert: false
+    });
+    if (uploadError) throw uploadError;
+    const { data: pub } = supabaseClient.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+
+    const { data, error } = await supabaseClient.from('hotspot_images')
+      .insert({ id: imageId, project_id: projectId, name, url: pub.publicUrl, order_index: order })
+      .select().single();
+    if (error) throw error;
     await this.touchProject(projectId);
-    return img;
+    return rowToImage(data);
   },
   async renameImage(id, name){
-    const img = LocalState.images.find(x=>x.id===id);
-    if (img) img.name = name.trim();
-    return img;
+    const { data, error } = await supabaseClient.from('hotspot_images')
+      .update({ name: name.trim() }).eq('id', id).select().single();
+    if (error) throw error;
+    return rowToImage(data);
   },
   async reorderImage(id, direction){
     const current = await this.getImage(id);
+    if (!current) throw new Error('找不到這張圖片，可能已經被刪除');
     const list = await this.listImages(current.projectId);
     const i = list.findIndex(im=>im.id===id);
     const j = direction === 'up' ? i-1 : i+1;
     if (j<0 || j>=list.length) return;
-    [list[i].order, list[j].order] = [list[j].order, list[i].order];
+    const { error: e1 } = await supabaseClient.from('hotspot_images').update({ order_index: list[j].order }).eq('id', list[i].id);
+    if (e1) throw e1;
+    const { error: e2 } = await supabaseClient.from('hotspot_images').update({ order_index: list[i].order }).eq('id', list[j].id);
+    if (e2) throw e2;
   },
   async deleteImage(id){
-    const idx = LocalState.images.findIndex(im=>im.id===id);
-    if (idx === -1) return null;
-    const [removed] = LocalState.images.splice(idx,1);
-    const removedHotspots = LocalState.hotspots.filter(h=>h.imageId===id);
-    LocalState.hotspots = LocalState.hotspots.filter(h=>h.imageId!==id);
-    return { image: removed, hotspots: removedHotspots };
+    const image = await this.getImage(id);
+    if (!image) throw new Error('找不到這張圖片，可能已經被刪除');
+    const hotspots = await this.listHotspots(id);
+    const { error } = await supabaseClient.from('hotspot_images').delete().eq('id', id);
+    if (error) throw error;
+    // 圖檔本身留在 Storage（避免復原時還要重新上傳檔案）；真正的清理／保留政策
+    // 待 Media/Storage Specification 定案後再決定。
+    return { image, hotspots };
   },
   async restoreImage(bundle){
     if (!bundle) return;
-    LocalState.images.push(bundle.image);
-    LocalState.hotspots.push(...bundle.hotspots);
+    const { error: iErr } = await supabaseClient.from('hotspot_images').insert({
+      id: bundle.image.id, project_id: bundle.image.projectId, name: bundle.image.name,
+      url: bundle.image.url, order_index: bundle.image.order
+    });
+    if (iErr) throw iErr;
+    for (const h of bundle.hotspots){
+      const { error } = await supabaseClient.from('hotspot_hotspots').insert({
+        id: h.id, image_id: h.imageId, x: h.x, y: h.y, width: h.width, height: h.height,
+        text: h.text, language: h.language, completed: h.completed, order_index: h.order
+      });
+      if (error) throw error;
+    }
   },
 
   // ---- Hotspot / Content（擁有者：Image）----
-  // CR-005：Hotspot 改為矩形區域（x,y = 左上角 %，width,height = 寬高 %），
-  // 取代原本的圓形 + radius，因為教材中的物件多半不是圓形（牛奶瓶、一排雞蛋、一個句子...）。
+  // CR-005：矩形區域（x,y = 左上角 %，width,height = 寬高 %）。
+  // CR-009：language 對應 Naming Specification 的「語言」資料物件。
   async listHotspots(imageId){
-    return LocalState.hotspots.filter(h=>h.imageId===imageId).sort((a,b)=>a.order-b.order);
+    const { data, error } = await supabaseClient.from('hotspot_hotspots')
+      .select('*').eq('image_id', imageId).order('order_index', { ascending:true });
+    if (error) throw error;
+    return data.map(rowToHotspot);
   },
-  async getHotspot(id){ return LocalState.hotspots.find(h=>h.id===id) || null; },
+  async getHotspot(id){
+    const { data, error } = await supabaseClient.from('hotspot_hotspots').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToHotspot(data) : null;
+  },
   async addHotspot(imageId, clickX, clickY){
     const order = (await this.listHotspots(imageId)).length;
     const DEFAULT_W = 12, DEFAULT_H = 8; // % of image width/height，建立時置中於點擊位置
     const x = Math.max(0, Math.min(100 - DEFAULT_W, clickX - DEFAULT_W / 2));
     const y = Math.max(0, Math.min(100 - DEFAULT_H, clickY - DEFAULT_H / 2));
-    // CR-009：language 對應 Naming Specification 已定義的「語言」資料物件（教材使用的語言），
-    // 不是為了 Media Specification 新增的欄位——這是發音要唸「哪一種語言」的必要資訊。
-    const h = { id: uid('hot'), imageId, x, y, width: DEFAULT_W, height: DEFAULT_H, text:'', language:'en-US', completed:false, order };
-    LocalState.hotspots.push(h);
-    return h;
+    const { data, error } = await supabaseClient.from('hotspot_hotspots')
+      .insert({ image_id: imageId, x, y, width: DEFAULT_W, height: DEFAULT_H,
+        text:'', language:'en-US', completed:false, order_index: order })
+      .select().single();
+    if (error) throw error;
+    return rowToHotspot(data);
   },
   async updateHotspotText(id, text){
-    const h = LocalState.hotspots.find(x=>x.id===id);
-    if (h){ h.text = text; h.completed = false; } // 內容變更代表尚未確認完成，需重新按「完成」
+    // 內容變更代表尚未確認完成，需重新按「完成」
+    const { error } = await supabaseClient.from('hotspot_hotspots').update({ text, completed:false }).eq('id', id);
+    if (error) throw error;
   },
   async updateHotspotLanguage(id, language){
-    const h = LocalState.hotspots.find(x=>x.id===id);
-    if (h) h.language = language;
+    const { error } = await supabaseClient.from('hotspot_hotspots').update({ language }).eq('id', id);
+    if (error) throw error;
   },
   async updateHotspotBox(id, box){
-    const h = LocalState.hotspots.find(x=>x.id===id);
-    if (h) Object.assign(h, box); // box: { x, y, width, height }（全部為 % 單位）
+    // box: { x, y, width, height }（全部為 % 單位）
+    const { error } = await supabaseClient.from('hotspot_hotspots').update(box).eq('id', id);
+    if (error) throw error;
   },
   async setHotspotCompleted(id, completed){
-    const h = LocalState.hotspots.find(x=>x.id===id);
-    if (h) h.completed = completed;
+    const { error } = await supabaseClient.from('hotspot_hotspots').update({ completed }).eq('id', id);
+    if (error) throw error;
   },
   async deleteHotspot(id){
-    const idx = LocalState.hotspots.findIndex(h=>h.id===id);
-    if (idx === -1) return null;
-    const [removed] = LocalState.hotspots.splice(idx,1);
+    const removed = await this.getHotspot(id);
+    if (!removed) throw new Error('找不到這個互動點，可能已經被刪除');
+    const { error } = await supabaseClient.from('hotspot_hotspots').delete().eq('id', id);
+    if (error) throw error;
     return removed;
   },
-  async restoreHotspot(h){ if (h) LocalState.hotspots.push(h); }
+  async restoreHotspot(h){
+    if (!h) return;
+    const { error } = await supabaseClient.from('hotspot_hotspots').insert({
+      id: h.id, image_id: h.imageId, x: h.x, y: h.y, width: h.width, height: h.height,
+      text: h.text, language: h.language, completed: h.completed, order_index: h.order
+    });
+    if (error) throw error;
+  }
+};
+
+/*
+ * CR-0001 Task 7（Error Handling Validation）：
+ * 把 rawRepository 包一層統一的錯誤處理，變成畫面實際會用到的 Repository。
+ * 任何方法失敗，都會：(1) 印到 console 方便除錯 (2) 顯示明確的 Toast，不是白畫面
+ * 或無聲失敗 (3) 把錯誤往上丟，需要的呼叫端仍可以自己再 catch 做額外處理
+ * （例如關閉 Dialog、還原按鈕狀態）。
+ * 呼叫端因此不需要每個地方各自寫 try/catch 才能有基本的錯誤提示。
+ */
+const REPOSITORY_SYNC_METHODS = new Set(['isConfigured', 'onAuthStateChange']); // 不需要包 try/catch 的同步方法
+
+function describeRepositoryError(err){
+  const msg = (err && err.message) || String(err);
+  if (!rawRepository.isConfigured()) return '尚未連接後端，請確認 Supabase 專案設定';
+  if (/Failed to fetch|NetworkError|network/i.test(msg)) return '網路連線失敗，請檢查網路後再試一次';
+  if (/row-level security|permission denied/i.test(msg)) return '沒有權限執行這個操作';
+  if (/JWT|not authenticated|refresh_token|session/i.test(msg)) return '登入已失效，請重新登入';
+  return `操作失敗：${msg}`;
+}
+
+function wrapRepositoryWithErrorHandling(repo){
+  const wrapped = {};
+  for (const key of Object.keys(repo)){
+    const original = repo[key];
+    if (typeof original !== 'function'){ wrapped[key] = original; continue; }
+    if (REPOSITORY_SYNC_METHODS.has(key)){ wrapped[key] = original.bind(repo); continue; }
+    wrapped[key] = async function(...args){
+      try{
+        return await original.apply(repo, args);
+      } catch(err){
+        console.error(`[Repository.${key}]`, err);
+        toast(describeRepositoryError(err));
+        throw err;
+      }
+    };
+  }
+  return wrapped;
+}
+
+const Repository = wrapRepositoryWithErrorHandling(rawRepository);
+
+// LocalState：接上 Supabase 後，只剩下「裝置本機偏好」還留在記憶體
+// （介面語言、是否設定過進入方式）——這些本來就不該進資料庫，是每個裝置各自的設定。
+const LocalState = {
+  language: 'zh-TW',
+  entryMethodConfigured: false
 };
 
 // Store：讓 i18n（L()）等仍需同步讀取語言設定的地方，維持簡單存取。
-// 資料操作一律透過 Repository（async），Store.state 僅保留少量同步旗標。
 const Store = { state: LocalState };
+
 
 /* ---------------------------------------------------------------------
    3. UI helpers — Toast（UX-08 立即回饋）／Dialog／EmptyState（UX-13）
@@ -882,12 +1058,30 @@ const app = document.getElementById('app');
 // 沒有使用者資料的情況下嘗試渲染（對應 CR 要求的 Session Expired Handling 原則）。
 const AUTH_REQUIRED_SCREENS = new Set(['library','project','imageEditor','reading','settings']);
 
+// render() 是同步呼叫的（Router.go/back 到處都在用），但登入狀態現在來自 Supabase 的
+// 非同步 session——所以維護一個同步的「目前是否已登入」快取，由 Supabase 的
+// onAuthStateChange 自動保持更新（登入完成、登出、Token 過期都會觸發）。
+// 這個快取只用來做畫面守衛（要不要導去 Login），實際使用者資料一律還是透過
+// Repository.getCurrentUser() 現查，不會拿這裡的值當真正的資料來源。
+let cachedIsLoggedIn = false;
+Repository.onAuthStateChange((isLoggedIn)=>{
+  cachedIsLoggedIn = isLoggedIn;
+  // Magic Link／OAuth 導回本頁、或 Token 被動更新時，若目前正停在 Login，
+  // 直接導去 Library，不需要使用者再點一次。
+  if (isLoggedIn && Router.current.screen === 'login'){
+    Router.resetTo('library');
+  }
+  if (!isLoggedIn && AUTH_REQUIRED_SCREENS.has(Router.current.screen)){
+    Router.resetTo('login');
+  }
+});
+
 function render(){
   window.__readingCleanup && window.__readingCleanup();
   window.__readingCleanup = null;
   const { screen } = Router.current;
 
-  if (AUTH_REQUIRED_SCREENS.has(screen) && !LocalState.currentUser){
+  if (AUTH_REQUIRED_SCREENS.has(screen) && !cachedIsLoggedIn){
     Router.resetTo('login');
     return;
   }
@@ -1003,30 +1197,37 @@ function renderLogin(){
       </div>
     </div>`;
 
-  // 登入成功後的流程：Authenticate → Read Profile → Read Plan → Read Storage → Open Library。
-  // 目前每一步讀到的都是 login() 當下放進去的假資料，但呼叫順序已經是最終架構的樣子——
-  // 之後 Authentication／Storage Specification 定案，只需要讓這幾個 Repository 方法
-  // 內部改成真正的 API 呼叫，這裡的流程完全不用重寫。
-  async function completeLogin(provider, label){
-    await Repository.login(provider, label);       // Authenticate User
-    const profile = await Repository.getCurrentUser(); // Read User Profile（含 Plan）
-    await Repository.getStorageUsage();             // Read Storage Usage
-    toast(`歡迎回來，${profile.name}`);
-    Router.resetTo('library');                      // Open Library
+  // 登入流程：Authenticate → Read Profile → Read Plan → Read Storage → Open Library。
+  // 注意：Google／Apple 會整頁導到對方登入頁，Email 是寄送 Magic Link——
+  // 這兩種都不會「呼叫完就馬上登入完成」，所以這裡不能假設 login() 回來後
+  // 就有使用者資料；真正登入完成的偵測，交給頁面載入時的 checkSession()
+  // （見檔案最後的啟動流程），這裡只負責發起登入。失敗時的錯誤提示已經由
+  // Repository 統一處理（見 wrapRepositoryWithErrorHandling），這裡不用重複顯示。
+  async function startLogin(provider, label){
+    try{
+      await Repository.login(provider, label); // Authenticate User（可能會導頁離開）
+      if (provider === 'email'){
+        toast('已寄出登入連結，請至信箱點擊連結完成登入');
+      }
+      // google／apple：瀏覽器即將導頁，這裡不需要（也不會）再做事
+    } catch(err){
+      // 已經由 Repository 顯示錯誤訊息，這裡只需要吞掉，避免 unhandled rejection
+    }
   }
 
-  document.getElementById('googleBtn').addEventListener('click', ()=> completeLogin('google', '老師'));
-  document.getElementById('appleBtn').addEventListener('click', ()=> completeLogin('apple', '老師'));
+  document.getElementById('googleBtn').addEventListener('click', ()=> startLogin('google', '老師'));
+  document.getElementById('appleBtn').addEventListener('click', ()=> startLogin('apple', '老師'));
   document.getElementById('emailBtn').addEventListener('click', ()=>{
     openDialog({
       title: '使用 Email 登入',
       bodyHtml: `<div class="field"><label>Email</label><input type="text" id="emailInput" placeholder="teacher@example.com"></div>`,
       actions: [
         { label:'取消', className:'btn-ghost', onClick: closeDialog },
-        { label:'登入', className:'btn-primary', onClick: async ()=>{
-            const val = document.getElementById('emailInput').value.trim() || '老師';
+        { label:'寄送登入連結', className:'btn-primary', onClick: async ()=>{
+            const val = document.getElementById('emailInput').value.trim();
+            if (!val) return;
             closeDialog();
-            await completeLogin('email', val);
+            await startLogin('email', val);
           } }
       ]
     });
@@ -1219,8 +1420,6 @@ function renderProject(){
     const fileInput = document.getElementById('fileInput');
     document.getElementById('newImageBtn').addEventListener('click', ()=> fileInput.click());
     fileInput.addEventListener('change', async (e)=>{
-      // TODO(Media Specification)：正式的圖片來源、壓縮、格式轉換、雲端儲存規則待補。
-      // MVP 僅示範瀏覽器原生檔案選取 + 暫時性 Object URL（重新整理即消失）。
       const files = Array.from(e.target.files || []);
       fileInput.value = '';
       if (files.length === 0) return;
@@ -1237,10 +1436,13 @@ function renderProject(){
             { label:L('Create'), className:'btn-primary', onClick: async ()=>{
                 const val = document.getElementById('imgNameInput').value.trim() || defaultName;
                 closeDialog();
-                const url = URL.createObjectURL(f);
-                await Repository.addImage(project.id, val, url);
-                renderProjectBody();
-                toast(`已新增圖片「${escapeHtml(val)}」`);
+                try{
+                  await Repository.addImage(project.id, val, f); // 上傳到 Supabase Storage
+                  renderProjectBody();
+                  toast(`已新增圖片「${escapeHtml(val)}」`);
+                } catch(err){
+                  // 錯誤訊息已經由 Repository 顯示，這裡不用重複
+                }
               } }
           ]
         });
@@ -1251,13 +1453,20 @@ function renderProject(){
         });
       } else {
         // 批次新增：沿用檔名作為預設名稱，避免逐張命名打斷流程（UX-04 不打斷工作流程）；
-        // 之後仍可在每張圖片上個別「重新命名」。
+        // 之後仍可在每張圖片上個別「重新命名」。每張圖片上傳失敗時 Repository 各自
+        // 會顯示一次錯誤 Toast（多張同時失敗會看到多個提示，這是刻意的，方便看出是哪幾張出問題）。
+        let successCount = 0;
         for (const f of files){
-          const url = URL.createObjectURL(f);
-          await Repository.addImage(project.id, f.name.replace(/\.[a-zA-Z0-9]+$/, ''), url);
+          try{
+            await Repository.addImage(project.id, f.name.replace(/\.[a-zA-Z0-9]+$/, ''), f);
+            successCount++;
+          } catch(err){
+            // 已由 Repository 顯示錯誤，這裡繼續處理下一張
+          }
         }
         renderProjectBody();
-        toast(`已新增 ${files.length} 張圖片`);
+        if (successCount === files.length) toast(`已新增 ${successCount} 張圖片`);
+        else if (successCount > 0) toast(`已新增 ${successCount}／${files.length} 張圖片，部分上傳失敗`);
       }
     });
 
@@ -2154,13 +2363,13 @@ function renderSettings(){
   })();
 }
 
-// App 啟動流程：Launch → Check Session → 有效就直接進 Library，無效才走 Welcome。
-// checkSession() 目前一定回傳 null（MVP 無持久化 Session，見 Repository 頂部說明），
-// 但流程本身已經是最終架構的樣子，之後接上真正的 Session 只需要換 checkSession() 內部。
+// App 啟動流程：Launch → Check Session → 有效就直接進 Library，無效才走 Welcome／Login。
+// checkSession() 現在真的會檢查 Supabase 的 session（包含 OAuth／Magic Link 導回本頁、
+// 網址帶著登入 token 的情況——supabase-js 會自動解析並建立 session）。
 (async ()=>{
   const session = await Repository.checkSession();
   if (session && session.user){
-    LocalState.currentUser = session.user;
+    cachedIsLoggedIn = true;
     Router.resetTo('library');
   } else {
     render();
